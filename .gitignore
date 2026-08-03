@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime state and logs
+.run-state.json
+*.log
+logs/
+
+# Coverage and build output
+coverage/
+dist/
+build/
+
+# Node/npm caches
+.npm/
+.cache/
+
+# OS files
+.DS_Store
+
+# Editor folders
+.vscode/
+.idea/

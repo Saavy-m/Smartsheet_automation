@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Spin-Up Automation — Technical Architecture</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Serif+Display&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <style>
+        :root {
+            --bg: #0f1117;
+            --bg-elevated: #181b23;
+            --bg-card: #1e2130;
+            --bg-code: #151822;
+            --fg: #e8e6e1;
+            --fg-muted: #8a8d9b;
+            --fg-dim: #5c5f6e;
+            --accent: #c9a84c;
+            --accent-dim: rgba(201, 168, 76, 0.15);
+            --teal: #3db8a0;
+            --teal-dim: rgba(61, 184, 160, 0.12);
+            --red-soft: #c75c5c;
+            --red-dim: rgba(199, 92, 92, 0.12);
+            --blue: #5b8def;
+            --blue-dim: rgba(91, 141, 239, 0.12);
+            --purple: #9b7edb;
+            --purple-dim: rgba(155, 126, 219, 0.12);
+            --green: #4caf7d;
+            --green-dim: rgba(76, 175, 125, 0.12);
+            --border: rgba(255, 255, 255, 0.06);
+            --border-accent: rgba(201, 168, 76, 0.25);
+            --radius: 12px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg); color: var(--fg);
+            line-height: 1.6; -webkit-font-smoothing: antialiased;
+        }
+        .page { max-width: 1140px; margin: 0 auto; padding: 60px 40px 80px; }
+        .top-bar {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 64px; padding-bottom: 20px; border-bottom: 1px solid var(--border);
+        }
+        .top-bar .brand { font-size: 11px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--fg-muted); }
+        .top-bar .date { font-size: 12px; color: var(--fg-dim); letter-spacing: 0.5px; }
+        .hero { margin-bottom: 56px; }
+        .hero .label {
+            font-size: 11px; font-weight: 600; letter-spacing: 3px; text-transform: uppercase;
+            color: var(--accent); margin-bottom: 20px; display: flex; align-items: center; gap: 10px;
+        }
+        .hero .label::before { content: ''; width: 24px; height: 1px; background: var(--accent); }
+        .hero h1 {
+            font-family: 'DM Serif Display', serif; font-size: clamp(32px, 4.5vw, 48px);
+            line-height: 1.1; color: var(--fg); margin-bottom: 20px; max-width: 620px;
+        }
+        .hero h1 span { color: var(--accent); }
+        .hero .intro { font-size: 15px; color: var(--fg-muted); max-width: 640px; line-height: 1.7; }
+        .section { margin-bottom: 72px; }
+        .section-header { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+        .section-header .icon-circle {
+            width: 36px; height: 36px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0;
+        }
+        .icon-circle.gold { background: var(--accent-dim); color: var(--accent); }
+        .icon-circle.teal { background: var(--teal-dim); color: var(--teal); }
+        .icon-circle.red { background: var(--red-dim); color: var(--red-soft); }
+        .icon-circle.blue { background: var(--blue-dim); color: var(--blue); }
+        .icon-circle.purple { background: var(--purple-dim); color: var(--purple); }
+        .icon-circle.green { background: var(--green-dim); color: var(--green); }
+        .icon-circle.slate { background: rgba(255,255,255,0.06); color: var(--fg-muted); }
+        .section-header h2 { font-family: 'DM Serif Display', serif; font-size: 26px; color: var(--fg); }
+        .section-subtitle {
+            font-size: 14px; color: var(--fg-muted); margin-bottom: 32px;
+            max-width: 680px; line-height: 1.7; padding-left: 52px;
+        }
+        .phase-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 32px; margin-bottom: 20px;
+            position: relative; overflow: hidden;
+        }
+        .phase-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+        .phase-card.gold::before { background: var(--accent); }
+        .phase-card.teal::before { background: var(--teal); }
+        .phase-card.red::before { background: var(--red-soft); }
+        .phase-card.blue::before { background: var(--blue); }
+        .phase-card.purple::before { background: var(--purple); }
+        .phase-card.green::before { background: var(--green); }
+        .phase-card .phase-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 20px; }
+        .phase-card .phase-num { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--fg-dim); margin-bottom: 6px; }
+        .phase-card h3 { font-family: 'DM Serif Display', serif; font-size: 20px; color: var(--fg); line-height: 1.3; }
+        .phase-card .phase-tag {
+            display: inline-block; font-size: 9px; font-weight: 700;
+            letter-spacing: 1.5px; text-transform: uppercase;
+            padding: 3px 10px; border-radius: 4px; flex-shrink: 0; margin-top: 4px;
+        }
+        .phase-tag.auto { background: var(--accent-dim); color: var(--accent); }
+        .phase-tag.human { background: var(--teal-dim); color: var(--teal); }
+        .phase-tag.manual { background: var(--red-dim); color: var(--red-soft); }
+        .phase-tag.hybrid { background: var(--blue-dim); color: var(--blue); }
+        .phase-card .phase-desc { font-size: 14px; color: var(--fg-muted); line-height: 1.7; margin-bottom: 24px; max-width: 680px; }
+        .api-sequence { display: flex; flex-direction: column; gap: 12px; }
+        .api-call {
+            background: var(--bg-code); border: 1px solid var(--border);
+            border-radius: 8px; padding: 16px 20px;
+            display: flex; align-items: flex-start; gap: 16px;
+        }
+        .api-call .method {
+            font-size: 10px; font-weight: 700; letter-spacing: 1px;
+            padding: 3px 8px; border-radius: 4px; flex-shrink: 0;
+            margin-top: 2px; min-width: 44px; text-align: center;
+        }
+        .method.get { background: var(--blue-dim); color: var(--blue); }
+        .method.post { background: rgba(61,184,160,0.12); color: var(--teal); }
+        .method.put { background: var(--accent-dim); color: var(--accent); }
+        .method.delete { background: var(--red-dim); color: var(--red-soft); }
+        .method.patch { background: var(--purple-dim); color: var(--purple); }
+        .api-call .api-body { flex: 1; }
+        .api-call .endpoint {
+            font-family: 'DM Sans', monospace; font-size: 13px;
+            color: var(--fg); font-weight: 500; margin-bottom: 4px; word-break: break-all;
+        }
+        .api-call .endpoint a {
+            color: var(--blue); text-decoration: none;
+            border-bottom: 1px solid rgba(91,141,239,0.3); transition: border-color 0.2s;
+        }
+        .api-call .endpoint a:hover { border-color: var(--blue); }
+        .api-call .api-desc { font-size: 12px; color: var(--fg-dim); line-height: 1.5; }
+        .api-call .api-desc code {
+            font-family: 'DM Sans', monospace; font-size: 11px;
+            background: rgba(255,255,255,0.06); padding: 1px 5px;
+            border-radius: 3px; color: var(--fg-muted);
+        }
+        .detail-note {
+            margin-top: 16px; font-size: 12px; color: var(--fg-dim);
+            padding-left: 14px; border-left: 2px solid var(--accent-dim); line-height: 1.6;
+        }
+        .detail-note.teal-note { border-left-color: var(--teal-dim); }
+        .detail-note.red-note { border-left-color: var(--red-dim); }
+        .detail-note.blue-note { border-left-color: var(--blue-dim); }
+        .detail-note.green-note { border-left-color: var(--green-dim); }
+        .detail-note strong { color: var(--fg-muted); }
+        .prereq-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .prereq-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px;
+        }
+        .prereq-card h4 { font-family: 'DM Serif Display', serif; font-size: 16px; color: var(--fg); margin-bottom: 10px; }
+        .prereq-card p { font-size: 13px; color: var(--fg-muted); line-height: 1.6; }
+        .prereq-card ul { list-style: none; margin-top: 10px; }
+        .prereq-card ul li {
+            font-size: 12px; color: var(--fg-dim); line-height: 1.6;
+            padding-left: 16px; position: relative; margin-bottom: 4px;
+        }
+        .prereq-card ul li::before { content: ''; position: absolute; left: 0; top: 8px; width: 6px; height: 6px; border-radius: 50%; }
+        .prereq-card.gold-list ul li::before { background: var(--accent); }
+        .prereq-card.teal-list ul li::before { background: var(--teal); }
+        .prereq-card.blue-list ul li::before { background: var(--blue); }
+        .prereq-card.red-list ul li::before { background: var(--red-soft); }
+        .checkpoint-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .checkpoint-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 28px; position: relative; overflow: hidden;
+        }
+        .checkpoint-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+        .checkpoint-card.teal-card::before { background: var(--teal); }
+        .checkpoint-card.red-card::before { background: var(--red-soft); }
+        .checkpoint-card .cp-label { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; }
+        .checkpoint-card.teal-card .cp-label { color: var(--teal); }
+        .checkpoint-card.red-card .cp-label { color: var(--red-soft); }
+        .checkpoint-card h4 { font-family: 'DM Serif Display', serif; font-size: 17px; color: var(--fg); margin-bottom: 10px; }
+        .checkpoint-card p { font-size: 13px; color: var(--fg-muted); line-height: 1.65; margin-bottom: 12px; }
+        .checkpoint-card .blocker-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 4px; margin-bottom: 12px;
+        }
+        .blocker-badge.api-block { background: var(--red-dim); color: var(--red-soft); }
+        .blocker-badge.cost-block { background: var(--accent-dim); color: var(--accent); }
+        .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .info-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px;
+        }
+        .info-card h4 { font-family: 'DM Serif Display', serif; font-size: 16px; color: var(--fg); margin-bottom: 10px; }
+        .info-card p, .info-card li { font-size: 13px; color: var(--fg-muted); line-height: 1.65; }
+        .info-card ul { list-style: none; margin-top: 8px; }
+        .info-card ul li { padding-left: 16px; position: relative; margin-bottom: 4px; }
+        .info-card ul li::before { content: '→'; position: absolute; left: 0; color: var(--fg-dim); }
+        .safety-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 28px; position: relative; overflow: hidden;
+        }
+        .safety-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--green); }
+        .safety-card h4 { font-family: 'DM Serif Display', serif; font-size: 17px; color: var(--fg); margin-bottom: 12px; }
+        .safety-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+        .safety-item {
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            border-radius: 8px; padding: 18px 20px;
+        }
+        .safety-item .si-label {
+            font-size: 10px; font-weight: 700; letter-spacing: 1.5px;
+            text-transform: uppercase; margin-bottom: 6px;
+        }
+        .safety-item .si-label.safe { color: var(--green); }
+        .safety-item .si-label.caution { color: var(--accent); }
+        .safety-item .si-label.risk { color: var(--red-soft); }
+        .safety-item p { font-size: 13px; color: var(--fg-muted); line-height: 1.6; }
+        .trigger-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+        .trigger-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 28px; position: relative; overflow: hidden;
+            display: flex; flex-direction: column;
+        }
+        .trigger-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+        .trigger-card.opt-a::before { background: var(--accent); }
+        .trigger-card.opt-b::before { background: var(--teal); }
+        .trigger-card.opt-c::before { background: var(--blue); }
+        .trigger-card .opt-num { font-size: 10px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; }
+        .trigger-card.opt-a .opt-num { color: var(--accent); }
+        .trigger-card.opt-b .opt-num { color: var(--teal); }
+        .trigger-card.opt-c .opt-num { color: var(--blue); }
+        .trigger-card h4 { font-family: 'DM Serif Display', serif; font-size: 17px; color: var(--fg); margin-bottom: 10px; line-height: 1.3; }
+        .trigger-card p { font-size: 13px; color: var(--fg-muted); line-height: 1.65; margin-bottom: 16px; flex: 1; }
+        .trigger-card .how-it-works {
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            border-radius: 8px; padding: 14px 16px;
+        }
+        .trigger-card .how-it-works .hiw-label { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--fg-dim); margin-bottom: 8px; }
+        .trigger-card .how-it-works ul { list-style: none; }
+        .trigger-card .how-it-works ul li { font-size: 12px; color: var(--fg-dim); line-height: 1.6; padding-left: 14px; position: relative; margin-bottom: 3px; }
+        .trigger-card .how-it-works ul li::before { content: '→'; position: absolute; left: 0; color: var(--fg-dim); font-size: 10px; }
+        .trigger-card .how-it-works ul li strong { color: var(--fg-muted); }
+        .trigger-card .effort-badge {
+            display: inline-flex; align-items: center; gap: 5px;
+            font-size: 10px; font-weight: 600; padding: 3px 10px; border-radius: 4px; margin-top: 12px;
+        }
+        .effort-badge.low { background: var(--green-dim); color: var(--green); }
+        .effort-badge.med { background: var(--accent-dim); color: var(--accent); }
+        .effort-badge.high { background: var(--blue-dim); color: var(--blue); }
+        .folder-path {
+            background: var(--bg-elevated); border: 1px solid var(--border);
+            border-radius: 8px; padding: 14px 16px; margin-top: 16px;
+        }
+        .folder-path .fp-label { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; color: var(--fg-dim); margin-bottom: 6px; }
+        .folder-path .fp-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+        .folder-path .fp-row:last-child { margin-bottom: 0; }
+        .folder-path .fp-arrow { color: var(--accent); font-size: 11px; flex-shrink: 0; }
+        .folder-path .fp-path { font-family: 'DM Sans', monospace; font-size: 12px; color: var(--fg-muted); line-height: 1.5; }
+        .folder-path .fp-path .fp-highlight { color: var(--accent); font-weight: 600; }
+        .doc-footer {
+            margin-top: 80px; padding-top: 24px; border-top: 1px solid var(--border);
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .doc-footer span { font-size: 11px; color: var(--fg-dim); letter-spacing: 0.5px; }
+
+        /* ══════════════════════════════════════════════════ */
+        /* ARCHITECTURE AT A GLANCE — ENHANCED               */
+        /* ══════════════════════════════════════════════════ */
+        .arch-summary {
+            display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 48px;
+        }
+        .arch-summary-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 20px 24px;
+            display: flex; align-items: center; gap: 18px;
+            position: relative; overflow: hidden;
+        }
+        .arch-summary-card::after {
+            content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+        }
+        .arch-summary-card.auto-card::after { background: var(--accent); }
+        .arch-summary-card.human-card::after { background: var(--teal); }
+        .arch-summary-card.manual-card::after { background: var(--red-soft); }
+        .arch-summary-card .asc-icon {
+            width: 44px; height: 44px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 16px; flex-shrink: 0;
+        }
+        .arch-summary-card.auto-card .asc-icon { background: var(--accent-dim); color: var(--accent); }
+        .arch-summary-card.human-card .asc-icon { background: var(--teal-dim); color: var(--teal); }
+        .arch-summary-card.manual-card .asc-icon { background: var(--red-dim); color: var(--red-soft); }
+        .arch-summary-card .asc-num {
+            font-family: 'DM Serif Display', serif; font-size: 32px; line-height: 1;
+        }
+        .arch-summary-card.auto-card .asc-num { color: var(--accent); }
+        .arch-summary-card.human-card .asc-num { color: var(--teal); }
+        .arch-summary-card.manual-card .asc-num { color: var(--red-soft); }
+        .arch-summary-card .asc-text {
+            font-size: 12px; font-weight: 600; letter-spacing: 0.5px;
+            color: var(--fg-muted); line-height: 1.4;
+        }
+
+        /* ── Timeline ── */
+        .arch-timeline { position: relative; padding-left: 48px; }
+        .arch-timeline::before {
+            content: ''; position: absolute; left: 21px; top: 0; bottom: 0; width: 2px;
+            background: linear-gradient(180deg, var(--accent), var(--teal), var(--red-soft), var(--accent));
+            border-radius: 2px;
+        }
+        .tl-phase { position: relative; margin-bottom: 8px; }
+        .tl-phase:last-child { margin-bottom: 0; }
+        .tl-dot {
+            position: absolute; left: -48px; top: 18px; width: 12px; height: 12px;
+            border-radius: 50%; border: 2px solid; z-index: 2;
+        }
+        .tl-phase.gold-phase .tl-dot { border-color: var(--accent); background: var(--bg); }
+        .tl-phase.teal-phase .tl-dot { border-color: var(--teal); background: var(--bg); }
+        .tl-phase.red-phase .tl-dot { border-color: var(--red-soft); background: var(--bg); }
+        .tl-phase.slate-phase .tl-dot { border-color: var(--fg-dim); background: var(--bg); }
+        .tl-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 22px 24px;
+            transition: border-color 0.3s ease;
+        }
+        .tl-card:hover { border-color: var(--border-accent); }
+        .tl-card .tl-top {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 12px; margin-bottom: 8px;
+        }
+        .tl-card .tl-left { display: flex; align-items: center; gap: 12px; }
+        .tl-card .tl-icon {
+            width: 32px; height: 32px; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; flex-shrink: 0;
+        }
+        .tl-phase.gold-phase .tl-icon { background: var(--accent-dim); color: var(--accent); }
+        .tl-phase.teal-phase .tl-icon { background: var(--teal-dim); color: var(--teal); }
+        .tl-phase.red-phase .tl-icon { background: var(--red-dim); color: var(--red-soft); }
+        .tl-phase.slate-phase .tl-icon { background: rgba(255,255,255,0.06); color: var(--fg-muted); }
+        .tl-card .tl-title {
+            font-family: 'DM Serif Display', serif; font-size: 16px; color: var(--fg); line-height: 1.2;
+        }
+        .tl-card .tl-badge {
+            font-size: 9px; font-weight: 700; letter-spacing: 1.5px;
+            text-transform: uppercase; padding: 3px 8px; border-radius: 4px; flex-shrink: 0;
+        }
+        .tl-badge.auto-b { background: var(--accent-dim); color: var(--accent); }
+        .tl-badge.human-b { background: var(--teal-dim); color: var(--teal); }
+        .tl-badge.manual-b { background: var(--red-dim); color: var(--red-soft); }
+        .tl-badge.trigger-b { background: rgba(255,255,255,0.06); color: var(--fg-muted); }
+        .tl-card .tl-desc {
+            font-size: 13px; color: var(--fg-muted); line-height: 1.6; margin-bottom: 10px;
+        }
+        .tl-card .tl-details {
+            display: flex; flex-wrap: wrap; gap: 6px;
+        }
+        .tl-detail {
+            font-size: 11px; color: var(--fg-dim); background: rgba(255,255,255,0.04);
+            padding: 3px 10px; border-radius: 5px; display: inline-flex; align-items: center; gap: 5px;
+        }
+        .tl-detail i { font-size: 10px; }
+        .tl-detail.highlight { color: var(--accent); background: var(--accent-dim); }
+        .tl-detail.teal-hl { color: var(--teal); background: var(--teal-dim); }
+        .tl-detail.red-hl { color: var(--red-soft); background: var(--red-dim); }
+
+        @media (max-width: 768px) {
+            .page { padding: 40px 20px 60px; }
+            .prereq-grid, .checkpoint-grid, .info-grid, .safety-row { grid-template-columns: 1fr; }
+            .trigger-grid, .arch-summary { grid-template-columns: 1fr; }
+            .hero h1 { font-size: 28px; }
+            .phase-card .phase-top { flex-direction: column; }
+            .arch-timeline { padding-left: 36px; }
+            .arch-timeline::before { left: 13px; }
+            .tl-dot { left: -36px; }
+        }
+        body::before {
+            content: ''; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background:
+                radial-gradient(ellipse 80% 50% at 20% 10%, rgba(201,168,76,0.04), transparent),
+                radial-gradient(ellipse 60% 40% at 80% 80%, rgba(61,184,160,0.03), transparent);
+            pointer-events: none; z-index: 0;
+        }
+        .page { position: relative; z-index: 1; }
+        @media print {
+            body { background: #fff; color: #111; }
+            body::before { display: none; }
+            .phase-card, .prereq-card, .checkpoint-card, .info-card, .api-call, .safety-card, .safety-item, .trigger-card, .folder-path, .tl-card, .arch-summary-card { background: #f8f8f8; border-color: #ddd; }
+            .api-call, .trigger-card .how-it-works { background: #f0f0f0; }
+            .section-header h2, .phase-card h3, .prereq-card h4, .checkpoint-card h4, .info-card h4, .safety-card h4, .hero h1, .trigger-card h4, .tl-card .tl-title { color: #111; }
+            .phase-card .phase-desc, .prereq-card p, .checkpoint-card p, .info-card p, .info-card li, .hero .intro, .section-subtitle, .safety-item p, .trigger-card p, .tl-card .tl-desc { color: #444; }
+            .arch-timeline::before { background: #ccc; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="top-bar">
+            <span class="brand">CMR Design &middot; Project Operations</span>
+            <span class="date">Technical Architecture &middot; July 2026</span>
+        </div>
+
+        <section class="hero">
+            <div class="label">Technical Architecture</div>
+            <h1>How the automation <span>actually works.</span></h1>
+            <p class="intro">
+                This document maps every step of the project spin-up to the specific API calls, data flows, and integration points that make it happen. Each automated step cites the Smartsheet or Microsoft Graph endpoint that powers it, and each manual checkpoint documents the platform limitation that requires a person.
+            </p>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- ARCHITECTURE AT A GLANCE           -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle slate"><i class="fas fa-project-diagram"></i></div>
+                <h2>Architecture at a Glance</h2>
+            </div>
+            <p class="section-subtitle">
+                The automation runs as a control script triggered by the Smartsheet alert email. The script copies the New GEN009 template sheet into the project's folder, then finds and configures the existing artifacts. Three platform blockers require human checkpoints.
+            </p>
+
+            <!-- Summary bar -->
+            <div class="arch-summary">
+                <div class="arch-summary-card auto-card">
+                    <div class="asc-icon"><i class="fas fa-bolt"></i></div>
+                    <div>
+                        <div class="asc-num">8</div>
+                        <div class="asc-text">Fully Automated<br>Steps</div>
+                    </div>
+                </div>
+                <div class="arch-summary-card human-card">
+                    <div class="asc-icon"><i class="fas fa-hand-pointer"></i></div>
+                    <div>
+                        <div class="asc-num">2</div>
+                        <div class="asc-text">Human Checkpoints<br>(Platform Limits)</div>
+                    </div>
+                </div>
+                <div class="arch-summary-card manual-card">
+                    <div class="asc-icon"><i class="fas fa-hand-holding-dollar"></i></div>
+                    <div>
+                        <div class="asc-num">2</div>
+                        <div class="asc-text">Kept Manual<br>(Cost Decision)</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Timeline -->
+            <div class="arch-timeline">
+
+                <!-- Trigger -->
+                <div class="tl-phase slate-phase">
+                    <div class="tl-dot"></div>
+                    <div class="tl-card">
+                        <div class="tl-top">
+                            <div class="tl-left">
+                                <div class="tl-icon"><i class="fas fa-envelope"></i></div>
+                                <span class="tl-title">Trigger — Alert Email</span>
+                            </div>
+                            <span class="tl-badge trigger-b">3 Options</span>
+                        </div>
+                        <div class="tl-desc">A Smartsheet alert email arrives with the project name and number. Three ways to detect it: monitor the inbox directly, a web app where the user pastes the details, or forward to a dedicated email address.</div>
+                        <div class="tl-details">
+                            <span class="tl-detail"><i class="fas fa-inbox"></i> Inbox monitor</span>
+                            <span class="tl-detail"><i class="fas fa-globe"></i> Web app</span>
+                            <span class="tl-detail"><i class="fas fa-share"></i> Forward email</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 1 -->
+                <div class="tl-phase gold-phase">
+                    <div class="tl-dot"></div>
+                    <div class="tl-card">
+                        <div class="tl-top">
+                            <div class="tl-left">
+                                <div class="tl-icon"><i class="fas fa-copy"></i></div>
+                                <span class="tl-title">Phase 1 — Copy New GEN009</span>
+                            </div>
+                            <span class="tl-badge auto-b">Automated</span>
+                        </div>
+                        <div class="tl-desc">Copy the New GEN009 template sheet into the project's folder in Z-Active Projects. The sheet is named "{Project Name} Gen 009" and carries over all data, filters, and forms.</div>
+                        <div class="tl-details">
+                            <span class="tl-detail highlight"><i class="fas fa-file-alt"></i> Sheet copy, not workspace</span>
+                            <span class="tl-detail"><i class="fas fa-folder-open"></i> CMR Backoffice → Z-Active Projects</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 2 -->
+                <div class="tl-phase gold-phase">
+                    <div class="tl-dot"></div>
+                    <div class="tl-card">
+                        <div class="tl-top">
+                            <div class="tl-left">
+                                <div class="tl-icon"><i class="fas fa-pen-to-square"></i></div>
+                                <span class="tl-title">Phase 2 — Configure Sheet &amp; Plan</span>
+                            </div>
+                            <span class="tl-badge auto-b">Automated</span>
+                        </div>
+                        <div class="tl-desc">Write the project name and number into the checklist, hide the Patterson column for non-Patterson projects, and trim the project plan to the one section that matches the project type.</div>
+                        <div class="tl-details">
+                            <span class="tl-detail"><i class="fas fa-pen"></i> Write name &amp; number</span>
+                            <span class="tl-detail"><i class="fas fa-eye-slash"></i> Hide Patterson column</span>
+                            <span class="tl-detail red-hl"><i class="fas fa-trash"></i> Delete plan sections</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 3 -->
+                <div class="tl-phase gold-phase">
+                    <div class="tl-dot"></div>
+                    <div class="tl-card">
+                        <div class="tl-top">
+                            <div class="tl-left">
+                                <div class="tl-icon"><i class="fas fa-filter"></i></div>
+                                <span class="tl-title">Phase 3 — Configure 5 Reports</span>
+                            </div>
+                            <span class="tl-badge auto-b">Automated</span>
+                        </div>
+                        <div class="tl-desc">Update each report's filter to the new account number and create a correctly-named replacement. The original template-named report is deleted after the new one is in place.</div>
+                        <div class="tl-details">
+                            <span class="tl-detail"><i class="fas fa-folder"></i> 2 in main folder</span>
+                            <span class="tl-detail"><i class="fas fa-folder"></i> 3 in Dashboard Reports</span>
+                            <span class="tl-detail highlight"><i class="fas fa-tag"></i> Create fresh with correct name</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 4 -->
+                <div class="tl-phase gold-phase">
+                    <div class="tl-dot"></div>
+                    <div class="tl-card">
+                        <div class="tl-top">
+                            <div class="tl-left">
+                                <div class="tl-icon"><i class="fas fa-rocket"></i></div>
+                                <span class="tl-title">Phase 4 — Publish &amp; OneDrive</span>
+                            </div>
+                            <span class="tl-badge auto-b">Automated</span>
+                        </div>
+                        <div class="tl-desc">Publish the orders report and store its link in the project sheet. Copy the two OneDrive template folders, rename them to the project name, and place them in their destination folders.</div>
+                        <div class="tl-details">
+                            <span class="tl-detail"><i class="fas fa-link"></i> Publish orders report</span>
+                            <span class="tl-detail"><i class="fas fa-drafting-compass"></i> CAD Files folder</span>
+                            <span class="tl-detail"><i class="fas fa-users"></i> Client Files folder</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 5 -->
+                <div class="tl-phase teal-phase">
+                    <div class="tl-dot"></div>
+                    <div class="tl-card">
+                        <div class="tl-top">
+                            <div class="tl-left">
+                                <div class="tl-icon"><i class="fas fa-hand-pointer"></i></div>
+                                <span class="tl-title">Phase 5 — Human Checkpoints</span>
+                            </div>
+                            <span class="tl-badge human-b">2 Platform + 2 Cost</span>
+                        </div>
+                        <div class="tl-desc">Two steps are blocked by Smartsheet platform limitations (dashboard widgets and Dynamic View have no API). Two more are intentionally kept manual because automating them would cost more than the time they save.</div>
+                        <div class="tl-details">
+                            <span class="tl-detail teal-hl"><i class="fas fa-lock"></i> Dashboard paste</span>
+                            <span class="tl-detail teal-hl"><i class="fas fa-lock"></i> Dynamic View setup</span>
+                            <span class="tl-detail red-hl"><i class="fas fa-hand-holding-dollar"></i> Sharing</span>
+                            <span class="tl-detail red-hl"><i class="fas fa-hand-holding-dollar"></i> Contract check</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Phase 6 -->
+                <div class="tl-phase gold-phase">
+                    <div class="tl-dot"></div>
+                    <div class="tl-card">
+                        <div class="tl-top">
+                            <div class="tl-left">
+                                <div class="tl-icon"><i class="fas fa-check"></i></div>
+                                <span class="tl-title">Phase 6 — Mark Checklist Done</span>
+                            </div>
+                            <span class="tl-badge auto-b">Automated</span>
+                        </div>
+                        <div class="tl-desc">As each automated step completes, the script marks the corresponding checklist row as done. The team can see progress in real time on the checklist sheet.</div>
+                        <div class="tl-details">
+                            <span class="tl-detail"><i class="fas fa-clipboard-check"></i> Rows marked done as steps complete</span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- DATA SAFETY                        -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle green"><i class="fas fa-shield-halved"></i></div>
+                <h2>Data Safety — What Touches the Sheets</h2>
+            </div>
+            <p class="section-subtitle">
+                A report is a read-only view of data from one or more sheets. Changing a report's filter or name never modifies the underlying sheet data. The only operation in this automation that permanently removes data is the project plan trim.
+            </p>
+            <div class="safety-card">
+                <h4>Impact of every API call on source data</h4>
+                <div class="safety-row">
+                    <div class="safety-item">
+                        <div class="si-label safe">Safe — No data change</div>
+                        <p><strong>Report filter update</strong> (<code>PUT /reports/{id}/definition</code>) — Changes which rows the report displays. Does not add, modify, or delete any data in the source sheets.</p>
+                    </div>
+                    <div class="safety-item">
+                        <div class="si-label safe">Safe — No data change</div>
+                        <p><strong>Report create / delete</strong> (<code>POST /reports</code>, <code>DELETE /reports/{id}</code>) — Creates or removes a view object. Source sheets are completely unaffected. Deleting a report does not delete any rows.</p>
+                    </div>
+                    <div class="safety-item">
+                        <div class="si-label safe">Safe — No data change</div>
+                        <p><strong>Report publish</strong> (<code>PUT /reports/{id}/publish</code>) — Generates a read-only URL. Does not modify source data.</p>
+                    </div>
+                    <div class="safety-item">
+                        <div class="si-label safe">Safe — No data change</div>
+                        <p><strong>Column hide</strong> (<code>PUT /sheets/{id}/columns/{id}</code> with <code>hidden: true</code>) — Hides a column from the default view. The column and all its data remain intact. Fully reversible.</p>
+                    </div>
+                    <div class="safety-item">
+                        <div class="si-label caution">Intentional write</div>
+                        <p><strong>Cell update</strong> (<code>PUT /sheets/{id}/rows</code>) — Writes the project name and number into specific cells. This is the intended behavior — the same values a person would type manually.</p>
+                    </div>
+                    <div class="safety-item">
+                        <div class="si-label risk">Permanent deletion</div>
+                        <p><strong>Row deletion</strong> (<code>DELETE /sheets/{id}/rows</code>) — Used to trim the project plan. This is the only operation that permanently removes data. Rows cannot be recovered once deleted. The script logs row IDs before deletion and a confirmation checkpoint is recommended in early runs.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- PREREQUISITES                      -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle blue"><i class="fas fa-toolbox"></i></div>
+                <h2>Prerequisites &amp; Project Structure</h2>
+            </div>
+            <p class="section-subtitle">
+                The automation works with the existing project folder structure. The New GEN009 template sheet is copied into the project's folder, and the script then finds and configures the artifacts that already exist there.
+            </p>
+            <div class="prereq-grid">
+                <div class="prereq-card gold-list">
+                    <h4>Template Location</h4>
+                    <p>The New GEN009 sheet is the single template that gets copied for each new project.</p>
+                    <ul>
+                        <li><strong>Workspace:</strong> CMR Backoffice</li>
+                        <li><strong>Folder:</strong> New project Spin up</li>
+                        <li><strong>Sheet:</strong> New GEN009</li>
+                        <li>Full path: <code>workspaces/CMR Backoffice/New project Spin up/New GEN009</code></li>
+                        <li>Only this sheet is copied — not the entire workspace</li>
+                    </ul>
+                </div>
+                <div class="prereq-card teal-list">
+                    <h4>Project Folder Structure</h4>
+                    <p>When a new project is spun up, its artifacts live in the Z-Active Projects workspace.</p>
+                    <ul>
+                        <li><strong>Destination:</strong> <code>workspaces/Z-Active Projects/{Project Name - Project Toolkit}</code></li>
+                        <li>2 reports sit in the main Project Toolkit folder</li>
+                        <li>3 reports sit in the <code>Dashboard Reports</code> subfolder</li>
+                        <li>Project plan, orders sheet, and dashboard also exist in this folder</li>
+                    </ul>
+                </div>
+                <div class="prereq-card blue-list">
+                    <h4>Intake Form Changes</h4>
+                    <p>Two fields must exist on the project intake sheet so the script has the data it needs.</p>
+                    <ul>
+                        <li><strong>Project Type</strong> — dropdown with values: Commercial, Residential, Patterson. Drives which plan section to keep and whether to hide the Patterson column. Does not exist on the current form; must be added.</li>
+                        <li><strong>Approval Status</strong> — a column that changes to "Approved" when the project is greenlit. The webhook watches this column.</li>
+                    </ul>
+                </div>
+                <div class="prereq-card red-list">
+                    <h4>Licensing Requirements</h4>
+                    <p>The Smartsheet account must support API access and the required add-ons.</p>
+                    <ul>
+                        <li><strong>Smartsheet plan:</strong> Business or Enterprise (required for API and webhooks)</li>
+                        <li><strong>Dynamic View:</strong> premium add-on (required for the external sharing workflow)</li>
+                        <li><strong>Microsoft Graph:</strong> Entra app registration with Files.ReadWrite scope for OneDrive operations</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- TRIGGER                            -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle slate"><i class="fas fa-play"></i></div>
+                <h2>Trigger: How the Automation Starts</h2>
+            </div>
+            <p class="section-subtitle">
+                The process begins when a Smartsheet alert email arrives in the inbox. The email contains the project name, number, and the keywords "alert," "new project onboarding," "set filters," and "spin up new projects." We need to detect that email and extract the project details from it. Three approaches are available, each with different trade-offs.
+            </p>
+            <div class="trigger-grid">
+                <div class="trigger-card opt-a">
+                    <div class="opt-num">Option A</div>
+                    <h4>Monitor the inbox directly</h4>
+                    <p>The automation watches the existing inbox for Smartsheet alert emails. When one arrives, it parses the structured table inside the email body to extract the project name and number, then starts the control script. No change to the user's workflow.</p>
+                    <div class="how-it-works">
+                        <div class="hiw-label">How it works</div>
+                        <ul>
+                            <li><strong>Microsoft Graph API</strong> — webhook subscription on the inbox that fires on new email</li>
+                            <li><strong>Filter by sender/subject</strong> — check for Smartsheet alert keywords</li>
+                            <li><strong>Parse the email body</strong> — extract Project Number and Project Name from the structured HTML table</li>
+                            <li><strong>Start the control script</strong> — pass project name, number, and type to the automation</li>
+                        </ul>
+                    </div>
+                    <div class="effort-badge med"><i class="fas fa-wrench"></i> Medium setup effort</div>
+                </div>
+                <div class="trigger-card opt-b">
+                    <div class="opt-num">Option B</div>
+                    <h4>Web app — paste and trigger</h4>
+                    <p>A simple web page where the user pastes the project name and number and clicks a button to start the automation. The most reliable option — no email parsing needed, and the user stays in control of when each run starts.</p>
+                    <div class="how-it-works">
+                        <div class="hiw-label">How it works</div>
+                        <ul>
+                            <li><strong>Simple web page</strong> — form with project name, number, and optional project type dropdown</li>
+                            <li><strong>User pastes the values</strong> — copied directly from the alert email</li>
+                            <li><strong>Click "Run"</strong> — form submits to the callback server, which starts the control script</li>
+                            <li><strong>Live status</strong> — page can show automation progress in real time</li>
+                        </ul>
+                    </div>
+                    <div class="effort-badge low"><i class="fas fa-wrench"></i> Low setup effort</div>
+                </div>
+                <div class="trigger-card opt-c">
+                    <div class="opt-num">Option C</div>
+                    <h4>Forward to a dedicated email</h4>
+                    <p>The user forwards the alert email to a dedicated address that we monitor. As soon as the email arrives, the automation starts. The inbox is dedicated to this one purpose, so no filtering is needed.</p>
+                    <div class="how-it-works">
+                        <div class="hiw-label">How it works</div>
+                        <ul>
+                            <li><strong>Dedicated inbox</strong> — e.g., <code>spinup@cmr-design.com</code></li>
+                            <li><strong>Microsoft Graph webhook</strong> — every incoming email triggers the callback</li>
+                            <li><strong>No filtering needed</strong> — every message is a trigger, zero false positives</li>
+                            <li><strong>Parse the email body</strong> — same structured table as Option A</li>
+                            <li><strong>User action</strong> — forward the alert email, one extra step</li>
+                        </ul>
+                    </div>
+                    <div class="effort-badge med"><i class="fas fa-wrench"></i> Medium setup effort</div>
+                </div>
+            </div>
+            <div class="phase-card gold" style="margin-top: 24px;">
+                <div class="phase-top">
+                    <div>
+                        <div class="phase-num">All Options</div>
+                        <h3>What happens after the trigger fires</h3>
+                    </div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">Regardless of which trigger option is used, the result is the same: the project name, number, and type are extracted and passed to the control script. The script then reads the Master Project List to confirm the project details and proceeds to Phase 1.</p>
+                <div class="api-sequence">
+                    <div class="api-call">
+                        <span class="method get">GET</span>
+                        <div class="api-body">
+                            <div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/sheets/{sheetId}/rows</a></div>
+                            <div class="api-desc">Read the Master Project List row to confirm the project details and extract the project type (commercial, residential, Patterson). This validates the email data against the source of truth. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-note"><strong>Project type is not in the email.</strong> The Smartsheet alert email contains the project name and number but not the project type. The script reads the project type from the Master Project List row (or from the intake form, if the project type field has been added). This is why the intake form change is a prerequisite.</div>
+                <div class="detail-note"><strong>Combining options is fine.</strong> Option B (web app) can coexist with Option A or C. The web app is useful as a fallback, a manual re-run tool, or a way to monitor progress. The email-based options (A and C) handle the hands-free case.</div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- PHASE 1                            -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle gold"><i class="fas fa-copy"></i></div>
+                <h2>Phase 1 — Copy the New GEN009 Template</h2>
+            </div>
+            <p class="section-subtitle">The script copies the New GEN009 sheet from the CMR Backoffice workspace into the project's folder in Z-Active Projects. This is a single sheet copy, not a workspace copy. The other artifacts already exist in the project's folder.</p>
+            <div class="phase-card gold">
+                <div class="phase-top">
+                    <div><div class="phase-num">Phase 1</div><h3>Copy the New GEN009 sheet into the project folder</h3></div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">The New GEN009 template sheet is copied into the project's folder at <code>workspaces/Z-Active Projects/{Project Name - Project Toolkit}</code>. The copy is named using the project name followed by "Gen 009" (e.g., "1815 Lakewood Road Gen 009"). The <code>include</code> parameter carries over data, filters, forms, and conditional formatting rules from the template.</p>
+                <div class="api-sequence">
+                    <div class="api-call">
+                        <span class="method post">POST</span>
+                        <div class="api-body">
+                            <div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/sheets/{sheetId}/copy</a></div>
+                            <div class="api-desc">Copy the New GEN009 sheet. Set <code>newName</code> to <code>{Project Name} Gen 009</code>. Set <code>destinationType</code> to <code>folder</code> and <code>destinationId</code> to the project toolkit folder ID. Use <code>include</code> with values like <code>data</code>, <code>filters</code>, <code>forms</code>, <code>rules</code>. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-note"><strong>Template location:</strong> <code>workspaces/CMR Backoffice/New project Spin up/New GEN009</code>. The sheet ID is resolved at setup time and stored as configuration.</div>
+                <div class="detail-note"><strong>Destination folder:</strong> <code>workspaces/Z-Active Projects/{Project Name - Project Toolkit}</code>. The folder ID is determined by searching for the project name in the Z-Active Projects workspace.</div>
+                <div class="detail-note"><strong>What the copy carries:</strong> all rows, columns, formulas, conditional formatting, saved filters, and forms. What it does NOT carry: cell history. The original template is never modified.</div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- PHASE 2                            -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle gold"><i class="fas fa-pen-to-square"></i></div>
+                <h2>Phase 2 — Configure the Checklist &amp; Plan</h2>
+            </div>
+            <p class="section-subtitle">After the sheet copy, the control script writes the project-specific data into the checklist, hides non-applicable columns, and trims the project plan to the correct section.</p>
+            <div class="phase-card gold">
+                <div class="phase-top">
+                    <div><div class="phase-num">Step 2a</div><h3>Write project name and number into the checklist</h3></div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">The project name and number from the intake row are written into the designated cells at the top of the new checklist sheet.</p>
+                <div class="api-sequence">
+                    <div class="api-call">
+                        <span class="method get">GET</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/sheets/{sheetId}/columns</a></div><div class="api-desc">Resolve column IDs for the project name and project number columns. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method put">PUT</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/sheets/{sheetId}/rows</a></div><div class="api-desc">Update the target row cells with the project name and number. Up to 500 rows per call. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                </div>
+                <div class="detail-note green-note"><strong>Data safety:</strong> This writes the same values a person would type manually. No existing data is overwritten — these cells are empty in the template copy.</div>
+            </div>
+            <div class="phase-card gold" style="margin-top: 20px;">
+                <div class="phase-top">
+                    <div><div class="phase-num">Step 2b</div><h3>Hide the Patterson column for non-Patterson projects</h3></div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">If the project type is not Patterson, the Patterson column is hidden on the checklist sheet. Safe and reversible — the column is not deleted, just hidden from the default view.</p>
+                <div class="api-sequence">
+                    <div class="api-call">
+                        <span class="method put">PUT</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/sheets/{sheetId}/columns/{columnId}</a></div><div class="api-desc">Set <code>"hidden": true</code> on the Patterson column. Requires <code>ADMIN_SHEETS</code> scope. Hiding is reversible. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                </div>
+                <div class="detail-note green-note"><strong>Data safety:</strong> Hiding a column does not delete or modify any data. The column and all its cell values remain intact. Unhiding is a single click.</div>
+            </div>
+            <div class="phase-card gold" style="margin-top: 20px;">
+                <div class="phase-top">
+                    <div><div class="phase-num">Step 2c</div><h3>Trim the project plan to one section</h3></div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">The CMR Project Plan contains three sections (commercial, residential, Patterson). The script deletes the two sections that do not match the project type, keeping only the relevant one.</p>
+                <div class="api-sequence">
+                    <div class="api-call">
+                        <span class="method get">GET</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/sheets/{sheetId}</a></div><div class="api-desc">Read the plan sheet to identify the row IDs for each section. The script maps project type to which row ranges to delete. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method delete">DEL</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/sheets/{sheetId}/rows</a></div><div class="api-desc">Delete the non-applicable section rows. Maximum 10 rows per request, so batch into groups of 10. <strong>This is the only operation in the entire automation that permanently removes data.</strong> <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                </div>
+                <div class="detail-note red-note"><strong>Data safety:</strong> Row deletion is irreversible. The script logs the row IDs being deleted and their content before deletion. A confirmation checkpoint in early runs is recommended. A safer alternative for future consideration: pre-build three template variants (one per type) and copy the correct one, avoiding destructive deletes entirely.</div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- PHASE 3                            -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle gold"><i class="fas fa-filter"></i></div>
+                <h2>Phase 3 — Configure the Five Project Reports</h2>
+            </div>
+            <p class="section-subtitle">The five reports already exist in the project's folder. The script finds them by name, updates each filter to the new account number, and creates a correctly-named replacement. Two reports are in the main Project Toolkit folder; three are in the Dashboard Reports subfolder.</p>
+            <div class="phase-card gold">
+                <div class="phase-top">
+                    <div><div class="phase-num">Step 3a</div><h3>Find and update each report's filter</h3></div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">The script searches for the five reports by name. Two are in the main Project Toolkit folder; three are in the <code>Dashboard Reports</code> subfolder. For each report, the script reads its current filter definition, swaps the old account number for the new project number, and writes the modified definition back.</p>
+                <div class="api-sequence">
+                    <div class="api-call">
+                        <span class="method get">GET</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/folders/{folderId}/reports</a> or <a href="https://developers.smartsheet.com/api/" target="_blank">/search?query=Update+Project+Filter</a></div><div class="api-desc">Find the five reports. Two in the main folder, three in Dashboard Reports. Double-curly-brace naming convention makes them reliably searchable. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method get">GET</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/reports/{reportId}</a></div><div class="api-desc">Get the report's current definition including its filter criteria. The script must read the existing definition before modifying it — the <code>PUT</code> is a full replace, not a patch. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method put">PUT</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/reports/{reportId}/definition</a></div><div class="api-desc">Replace the report's filter criteria with the new account number. Supports operators like <code>EQUAL</code>, <code>CONTAINS</code>, <code>IS_ONE_OF</code>, with nested AND/OR up to three levels. <strong>Must send the entire modified definition.</strong> <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                </div>
+                <div class="detail-note green-note"><strong>Data safety:</strong> Updating a report's filter definition only changes which rows the report displays. It does not add, modify, or delete any data in the source sheets.</div>
+            </div>
+            <div class="phase-card gold" style="margin-top: 20px;">
+                <div class="phase-top">
+                    <div><div class="phase-num">Step 3b</div><h3>Create reports with the project-specific name</h3></div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">The Smartsheet API does not support renaming an existing report. To get reports named with the project number (which serves as the visual confirmation that the report is done), the script creates each report fresh with the correct name and then applies the filter definition.</p>
+                <div class="api-sequence">
+                    <div class="api-call">
+                        <span class="method post">POST</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/reports</a></div><div class="api-desc">Create a new report with the project-specific name (up to 50 characters). Name is set at creation time — the only way to get the correct name, since renaming is not supported. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method put">PUT</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/reports/{reportId}/definition</a></div><div class="api-desc">Apply the same filter definition (from Step 3a) to the newly created report.</div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method delete">DEL</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/reports/{reportId}</a></div><div class="api-desc">Delete the original template-named report now that the correctly-named replacement exists. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                </div>
+                <div class="detail-note green-note"><strong>Data safety:</strong> Creating a new report does not modify any source sheets — it creates a new view object. Deleting the old report removes the view, not the underlying data. No rows, columns, or cell values in any source sheet are affected.</div>
+                <div class="detail-note"><strong>Why this three-step pattern:</strong> The API does not support <code>PUT /reports/{id}</code> for renaming. <code>POST /reports</code> accepts a name at creation time. So: create with the right name, copy the filter definition, then delete the template-named original.</div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- PHASE 4                            -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle gold"><i class="fas fa-rocket"></i></div>
+                <h2>Phase 4 — Publish &amp; OneDrive</h2>
+            </div>
+            <p class="section-subtitle">The orders report is published and its link is stored in the project sheet. The two OneDrive folders are copied from templates and renamed to the project name.</p>
+            <div class="phase-card gold">
+                <div class="phase-top">
+                    <div><div class="phase-num">Step 4a</div><h3>Publish the orders report and store the link</h3></div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">The Project Orders report is published as a read-only-full URL. The script writes this URL into the Link column on the project sheet, where it's ready to be copied into the dashboard or shared directly.</p>
+                <div class="api-sequence">
+                    <div class="api-call">
+                        <span class="method put">PUT</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/reports/{reportId}/publish</a></div><div class="api-desc">Set <code>readOnlyFullEnabled: true</code> and <code>accessLevel</code> to <code>SHARED</code> or <code>ORG</code>. The response returns <code>readOnlyFullUrl</code>. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method put">PUT</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/sheets/{sheetId}/rows</a></div><div class="api-desc">Write the published URL into the Link column on the project sheet.</div></div>
+                    </div>
+                </div>
+                <div class="detail-note green-note"><strong>Data safety:</strong> Publishing a report generates a URL — it does not modify any data in the source sheets. Writing the URL into the Link column is an intentional write, same as a person pasting the link manually.</div>
+            </div>
+            <div class="phase-card gold" style="margin-top: 20px;">
+                <div class="phase-top">
+                    <div><div class="phase-num">Step 4b</div><h3>Create the two OneDrive folders</h3></div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">Two OneDrive template folders are copied and renamed to the project name. The CAD Files template is copied from its template location into the CAD Files folder. The Client Files template is copied from its template location into the Client Files folder. Both are renamed to the project name after the copy completes.</p>
+                <div class="folder-path">
+                    <div class="fp-label">CAD Files</div>
+                    <div class="fp-row"><span class="fp-arrow"><i class="fas fa-arrow-right"></i></span><span class="fp-path">OneDrive / <span class="fp-highlight">CMR Design</span> / <span class="fp-highlight">cipi - CAD Files</span> / 000 New / 00Template</span></div>
+                    <div class="fp-row"><span class="fp-arrow"><i class="fas fa-arrow-down"></i></span><span class="fp-path">Copy → rename to <span class="fp-highlight">{Project Name}</span> → paste into</span></div>
+                    <div class="fp-row"><span class="fp-arrow"><i class="fas fa-arrow-right"></i></span><span class="fp-path">OneDrive / <span class="fp-highlight">CMR Design</span> / <span class="fp-highlight">cipi - CAD Files</span></span></div>
+                </div>
+                <div class="folder-path" style="margin-top: 12px;">
+                    <div class="fp-label">Client Files</div>
+                    <div class="fp-row"><span class="fp-arrow"><i class="fas fa-arrow-right"></i></span><span class="fp-path">OneDrive / <span class="fp-highlight">CMR Design</span> / <span class="fp-highlight">cipi - CMR Design</span> / 00New / 01Template</span></div>
+                    <div class="fp-row"><span class="fp-arrow"><i class="fas fa-arrow-down"></i></span><span class="fp-path">Copy → rename to <span class="fp-highlight">{Project Name}</span> → paste into</span></div>
+                    <div class="fp-row"><span class="fp-arrow"><i class="fas fa-arrow-right"></i></span><span class="fp-path">OneDrive / <span class="fp-highlight">CMR Design</span> / <span class="fp-highlight">Client Files</span></span></div>
+                </div>
+                <div class="api-sequence" style="margin-top: 20px;">
+                    <div class="api-call">
+                        <span class="method post">POST</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://learn.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_copy" target="_blank">/drives/{driveId}/items/{templateFolderId}/copy</a></div><div class="api-desc">Copy the <code>00Template</code> folder from <code>cipi - CAD Files/000 New</code> to the <code>cipi - CAD Files</code> parent folder. Copy is asynchronous — poll the <code>Location</code> header until complete. <a href="https://learn.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_copy" target="_blank">Graph docs ↗</a></div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method patch">PATCH</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://learn.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_update" target="_blank">/drives/{driveId}/items/{newFolderId}</a></div><div class="api-desc">Rename the copied folder to the exact project name. <a href="https://learn.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_update" target="_blank">Graph docs ↗</a></div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method post">POST</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://learn.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_copy" target="_blank">/drives/{driveId}/items/{templateFolderId}/copy</a></div><div class="api-desc">Copy the <code>01Template</code> folder from <code>cipi - CMR Design/00New</code> to the <code>Client Files</code> folder. Same async pattern. <a href="https://learn.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_copy" target="_blank">Graph docs ↗</a></div></div>
+                    </div>
+                    <div class="api-call">
+                        <span class="method patch">PATCH</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://learn.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_update" target="_blank">/drives/{driveId}/items/{newFolderId}</a></div><div class="api-desc">Rename the copied folder to the exact project name. <a href="https://learn.microsoft.com/en-us/onedrive/developer/rest-api/api/driveitem_update" target="_blank">Graph docs ↗</a></div></div>
+                    </div>
+                </div>
+                <div class="detail-note"><strong>Sequence matters:</strong> Copy first, wait for completion, then rename. Attempting to rename during the copy can silently fail. The script runs this sequence once for the CAD Files folder and once for the Client Files folder.</div>
+                <div class="detail-note"><strong>Template folder IDs</strong> for <code>00Template</code> and <code>01Template</code> are resolved from their paths at setup time and stored as configuration values.</div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- PHASE 5                            -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle teal"><i class="fas fa-hand-pointer"></i></div>
+                <h2>Phase 5 — Human Checkpoints</h2>
+            </div>
+            <p class="section-subtitle">Four steps require a person. Two are platform blockers (dashboard widgets and Dynamic View have no API), and two are intentional cost decisions (sharing and contract verification are faster to do manually than to automate).</p>
+            <div class="checkpoint-grid">
+                <div class="checkpoint-card teal-card">
+                    <div class="cp-label">Platform Blocker</div>
+                    <h4>Dashboard: paste the Orders report link</h4>
+                    <span class="blocker-badge api-block"><i class="fas fa-lock"></i> No API for widget editing</span>
+                    <p>Smartsheet does not allow outside tools to change what appears on a dashboard. The <code>widgets</code> field on a Sight is read-only — attempting to write it returns error 1008. The automation prepares the Orders report link in the project sheet's Link column; a person copies it and pastes it into the dashboard widget.</p>
+                    <p><strong>Time:</strong> about one minute per project.</p>
+                    <div class="detail-note teal-note"><strong>Redesign option:</strong> If the dashboard uses native Smartsheet report widgets instead of web content widgets, this manual step is eliminated entirely.</div>
+                </div>
+                <div class="checkpoint-card teal-card">
+                    <div class="cp-label">Platform Blocker</div>
+                    <h4>Dynamic View: create, filter, and share</h4>
+                    <span class="blocker-badge api-block"><i class="fas fa-lock"></i> No API for Dynamic View</span>
+                    <p>Dynamic View has no API, no MCP tool, and no Bridge module. A person must complete this setup by hand — creating the Dynamic View (by copying the most recent one), building the Orders sheet filter (saved filters cannot be created via API either), setting the filter to the account number, domain-sharing to cmr-design.com, and pasting the Dynamic View link into the dashboard.</p>
+                    <p><strong>Time:</strong> a few minutes per project.</p>
+                    <div class="detail-note teal-note"><strong>Timing dependency:</strong> The Orders sheet filter must be created and saved <em>before</em> opening Dynamic View, and it takes several seconds to propagate.</div>
+                </div>
+                <div class="checkpoint-card red-card">
+                    <div class="cp-label">Cost Decision</div>
+                    <h4>Sharing with the right teammate</h4>
+                    <span class="blocker-badge cost-block"><i class="fas fa-hand-holding-dollar"></i> Kept manual for cost</span>
+                    <p>The Smartsheet API can share a sheet and send a notification in a single call (<code>POST /sheets/{id}/shares</code> with <code>sendEmail=true</code>). The issue is determining <em>who</em> should receive access — the recipient may vary by project type, and building that logic adds more complexity than the time saved for a five-second manual click.</p>
+                    <div class="detail-note"><strong>API reference:</strong> <a href="https://developers.smartsheet.com/api/" target="_blank" style="color: var(--blue);">POST /sheets/{sheetId}/shares</a> — the capability exists, but the recipient logic is the concern.</div>
+                </div>
+                <div class="checkpoint-card red-card">
+                    <div class="cp-label">Cost Decision</div>
+                    <h4>Confirming the signed contract</h4>
+                    <span class="blocker-badge cost-block"><i class="fas fa-hand-holding-dollar"></i> Kept manual for cost</span>
+                    <p>The API can confirm an attachment exists (<code>GET /sheets/{id}/attachments</code>), but it cannot read the document to verify a signature. Automating this would require either a strict file-naming convention or an AI step that opens and reads the attachment — both adding cost for a check that takes a person seconds to do visually.</p>
+                    <div class="detail-note"><strong>API reference:</strong> <a href="https://developers.smartsheet.com/api/" target="_blank" style="color: var(--blue);">GET /sheets/{sheetId}/attachments</a> — can confirm a file is attached, but cannot verify its contents.</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- PHASE 6                            -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle gold"><i class="fas fa-check"></i></div>
+                <h2>Phase 6 — Mark Checklist Done</h2>
+            </div>
+            <p class="section-subtitle">As each automated step completes, the script marks the corresponding checklist row as done. The team can see progress in real time on the checklist sheet.</p>
+            <div class="phase-card gold">
+                <div class="phase-top">
+                    <div><div class="phase-num">Step 6</div><h3>Mark checklist rows done</h3></div>
+                    <span class="phase-tag auto">Automated</span>
+                </div>
+                <p class="phase-desc">As each automated step completes, the script marks the corresponding checklist row as done. The team can see progress in real time on the checklist sheet.</p>
+                <div class="api-sequence">
+                    <div class="api-call">
+                        <span class="method put">PUT</span>
+                        <div class="api-body"><div class="endpoint"><a href="https://developers.smartsheet.com/api/" target="_blank">/sheets/{sheetId}/rows</a></div><div class="api-desc">Update the status column on the relevant checklist rows to "Done." Batch up to 500 rows per call. <a href="https://developers.smartsheet.com/api/" target="_blank">Smartsheet API docs ↗</a></div></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- ERROR HANDLING                     -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle purple"><i class="fas fa-shield-halved"></i></div>
+                <h2>Error Handling &amp; Reliability</h2>
+            </div>
+            <p class="section-subtitle">The control script is designed to be resilient against transient failures, rate limits, and the asynchronous nature of the Smartsheet and Microsoft Graph APIs.</p>
+            <div class="info-grid">
+                <div class="info-card">
+                    <h4>Rate Limits</h4>
+                    <p>Smartsheet allows 300 requests per minute per API token. Resource-intensive operations count 10x and are limited to 30 per minute.</p>
+                    <ul>
+                        <li>429 responses return <code>errorCode 4003</code></li>
+                        <li>The official SDKs implement exponential backoff automatically</li>
+                        <li>For custom HTTP calls, implement exponential backoff with jitter and respect the <code>Retry-After</code> header</li>
+                        <li>Batch row operations (up to 500 per call) to minimize request count</li>
+                        <li>Execute updates to a single object serially to avoid save collisions</li>
+                    </ul>
+                </div>
+                <div class="info-card">
+                    <h4>Async Operations</h4>
+                    <p>Sheet copy and OneDrive folder copy are asynchronous. The script must poll for completion before proceeding.</p>
+                    <ul>
+                        <li>Smartsheet copy returns a <code>Location</code> header — poll until the operation completes</li>
+                        <li>OneDrive copy returns a <code>Location</code> header — poll until the item appears in the target</li>
+                        <li>Do not attempt to update or rename a resource until its copy is confirmed complete</li>
+                        <li>Set a maximum poll duration (e.g., 5 minutes) and fail gracefully if exceeded</li>
+                    </ul>
+                </div>
+                <div class="info-card">
+                    <h4>Filter Propagation Delay</h4>
+                    <p>Saved sheet filters take several seconds to propagate to Dynamic View and other dependent surfaces.</p>
+                    <ul>
+                        <li>The Orders sheet filter must be created and saved <em>before</em> Dynamic View is opened</li>
+                        <li>If Dynamic View was already open, reload the page</li>
+                        <li>This is a human checkpoint concern, not a script concern — the script does not interact with Dynamic View</li>
+                    </ul>
+                </div>
+                <div class="info-card">
+                    <h4>Script Idempotency &amp; Recovery</h4>
+                    <p>If the script fails mid-run, it should be safe to re-run without creating duplicate artifacts.</p>
+                    <ul>
+                        <li>Log the sheet copy ID immediately after creation — if the script restarts, it can check whether the sheet already exists</li>
+                        <li>Use the <code>Smartsheet-Change-Agent</code> header on all writes to prevent duplicate updates</li>
+                        <li>Each run should check for existing artifacts before creating new ones</li>
+                        <li>Store run state (which phases completed) in a simple log or control sheet</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════ -->
+        <!-- AUTH & SECURITY                    -->
+        <!-- ═══════════════════════════════════ -->
+        <section class="section">
+            <div class="section-header">
+                <div class="icon-circle blue"><i class="fas fa-key"></i></div>
+                <h2>Authentication &amp; Security</h2>
+            </div>
+            <p class="section-subtitle">The automation uses two separate authentication surfaces — Smartsheet and Microsoft Graph — plus a separate Dynamic View admin login for the manual step.</p>
+            <div class="info-grid">
+                <div class="info-card">
+                    <h4>Smartsheet Authentication</h4>
+                    <ul>
+                        <li><strong>Production:</strong> OAuth 2.0 app with scopes <code>READ_SHEETS</code>, <code>WRITE_SHEETS</code>, <code>ADMIN_SHEETS</code>, <code>SHARE_SHEETS</code>, <code>CREATE_SIGHTS</code></li>
+                        <li><strong>Development:</strong> Personal access token (bearer) — simplest, but tied to a user and long-lived</li>
+                        <li><strong>Service account pattern:</strong> Use a dedicated Smartsheet user as the automation identity so shares and ownership are stable and not tied to an employee</li>
+                        <li>Store all tokens in a secrets manager, never in code or <code>.env</code> committed to source control</li>
+                    </ul>
+                </div>
+                <div class="info-card">
+                    <h4>Microsoft Graph Authentication</h4>
+                    <ul>
+                        <li>Requires an Entra (Azure AD) app registration</li>
+                        <li>Least-privilege scope: <code>Files.ReadWrite</code> (not <code>Files.ReadWrite.All</code> unless needed)</li>
+                        <li>Use delegated permissions if a user context is needed, or application permissions for unattended runs</li>
+                        <li>Store the client ID, tenant ID, and client secret in a secrets manager</li>
+                    </ul>
+                </div>
+                <div class="info-card">
+                    <h4>Dynamic View Credentials</h4>
+                    <ul>
+                        <li>Dynamic View has no API — OAuth scopes and service accounts do not apply</li>
+                        <li>The separate admin login is stored in the "Smartsheet Admin" browser profile</li>
+                        <li>If UI automation is ever used for Dynamic View, store admin credentials in a secrets manager and run the bot in a dedicated, isolated browser profile</li>
+                        <li>Do not hardcode credentials</li>
+                    </ul>
+                </div>
+                <div class="info-card">
+                    <h4>Security Considerations</h4>
+                    <ul>
+                        <li>Publishing a report or dashboard exposes data to anyone with the link unless access control is set to <code>ORG</code> or <code>SHARED</code> — set access deliberately</li>
+                        <li>Sharing sheets programmatically may auto-convert users to paid members under the User Subscription Model — account for this in cost</li>
+                        <li>The callback server must use a CA-signed TLS certificate and a public URL</li>
+                        <li>Validate webhook callback signatures to prevent spoofed triggers</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <footer class="doc-footer">
+            <span>Prepared for Client Review</span>
+            <span>Project Spin-Up Automation &middot; Technical Architecture</span>
+        </footer>
+    </div>
+</body>
+</html>
