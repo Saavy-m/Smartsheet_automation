@@ -1,6 +1,7 @@
 const { createSmartsheetClient } = require('./clients/smartsheetClient');
 const { createGraphClient } = require('./clients/graphClient');
 const { childLogger } = require('./utils/logger');
+const { addStepResult, buildAutomationReport } = require('./utils/automationReport');
 const runStateStore = require('./utils/runStateStore');
 const { markStepDone } = require('./steps/step06-markChecklistDone');
 
@@ -29,7 +30,9 @@ const automatedChecklistSteps = new Set([
   'step04b'
 ]);
 
-async function run(initialCtx) {
+async function run(initialCtx, options = {}) {
+  const markChecklistSteps = options.markChecklistSteps !== false;
+
   let ctx = {
     sheetIds: {},
     folderIds: {},
@@ -37,6 +40,7 @@ async function run(initialCtx) {
     publishedUrls: {},
     checklistRowMap: {},
     stepStatus: {},
+    stepResults: [],
     ...initialCtx
   };
 
@@ -51,6 +55,12 @@ async function run(initialCtx) {
 
     if (await runStateStore.isStepComplete(ctx, stepRef)) {
       log.info('step already complete; skipping');
+      addStepResult(ctx, { stepRef, status: 'skipped', message: 'Step was already complete before this run' });
+      if (options.stopAfterStep === stepRef) {
+        ctx.stoppedAfterStep = stepRef;
+        ctx.automationReport = buildAutomationReport(ctx);
+        return ctx;
+      }
       continue;
     }
 
@@ -60,23 +70,54 @@ async function run(initialCtx) {
 
       if (ctx.stepStatus?.[stepRef] === 'needs_manual_review') {
         log.warn('step completed with manual review required; not marking checklist done');
+        addStepResult(ctx, { stepRef, status: 'needs_manual_review', message: 'Step completed with manual review required' });
+        if (options.stopAfterStep === stepRef) {
+          ctx.stoppedAfterStep = stepRef;
+          ctx.automationReport = buildAutomationReport(ctx);
+          return ctx;
+        }
         continue;
       }
 
       await runStateStore.markStepComplete(ctx, stepRef);
 
-      if (automatedChecklistSteps.has(stepRef)) {
+      if (markChecklistSteps && automatedChecklistSteps.has(stepRef)) {
         await markStepDone(ctx, stepRef);
       }
+
+      addStepResult(ctx, {
+        stepRef,
+        status: 'completed',
+        outcome: ctx.stepStatus?.[stepRef] || 'completed'
+      });
+
+      if (options.stopAfterStep === stepRef) {
+        log.info('requested stop point reached; ending run early');
+        ctx.stoppedAfterStep = stepRef;
+        ctx.automationReport = buildAutomationReport(ctx);
+        return ctx;
+      }
     } catch (error) {
-      log.error({ err: error }, 'step failed; stopping run');
+      log.error({ err: error }, 'step failed; continuing run');
       await runStateStore.markStepFailed(ctx, stepRef, error);
-      throw error;
+      ctx.stepStatus[stepRef] = 'failed';
+      ctx.problems = ctx.problems || [];
+      ctx.problems.push({ step: stepRef, message: error.message });
+      addStepResult(ctx, { stepRef, status: 'failed', message: error.message });
+
+      if (options.stopAfterStep === stepRef) {
+        ctx.stoppedAfterStep = stepRef;
+        ctx.automationReport = buildAutomationReport(ctx);
+        return ctx;
+      }
     }
   }
 
-  await runStateStore.markRunComplete(ctx);
-  ctx.log.info('automated run complete; manual rows may remain open by design');
+  if (!ctx.automationReport?.failedSteps) {
+    await runStateStore.markRunComplete(ctx);
+  }
+  ctx.automationReport = buildAutomationReport(ctx);
+  ctx.log.info({ failedSteps: ctx.automationReport.failedSteps }, 'automated run finished; manual rows may remain open by design');
   return ctx;
 }
 

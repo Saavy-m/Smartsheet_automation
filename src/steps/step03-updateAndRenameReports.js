@@ -1,97 +1,146 @@
+// Step 03 updates configured Smartsheet report definitions with the project number while preserving report IDs.
+// run() loads the project root folder, finds update-filter reports, renames them, replaces account-number placeholders, and records IDs.
+// Helper functions discover reports, match report templates, build names, replace placeholders recursively, and identify the Orders report.
+
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 
 async function run(ctx) {
   const log = childLogger(ctx, 'step03');
   const smartsheet = ctx.clients.smartsheet;
-  const folders = await loadReportFolders(smartsheet, ctx.folderIds.projectToolkit);
-  const reportMatches = findConfiguredReports(folders);
-
-  if (reportMatches.length !== config.smartsheet.reportTemplateNames.length) {
-    throw new Error(`Expected ${config.smartsheet.reportTemplateNames.length} reports, found ${reportMatches.length}`);
-  }
+  const projectRootFolder = await loadProjectRootFolder(smartsheet, ctx);
+  const reportMatches = await findConfiguredReports(smartsheet, projectRootFolder, ctx);
+  const filterFailures = [];
 
   ctx.reportIds.updatedReports = [];
 
   for (const report of reportMatches) {
-    const beforeId = report.id;
-    const beforeName = report.name;
-    const reportDetail = (await smartsheet.get(`/reports/${beforeId}`)).data;
-    const newName = buildReportName(beforeName, ctx);
-    const definition = replaceAccountNumber(reportDetail, ctx.projectNumber);
+    const reportId = report.id;
+    const reportName = report.name;
+    const updatedName = await renameReport({ smartsheet, log, reportId, reportName, ctx });
+    const updatedReport = { beforeId: reportId, beforeName: reportName, afterId: reportId, afterName: updatedName, renamed: updatedName !== reportName, filterUpdated: false };
+    ctx.reportIds.updatedReports.push(updatedReport);
 
-    const createResponse = await smartsheet.post('/reports', {
-      name: newName,
-      destinationType: 'folder',
-      destinationId: report.parentFolderId || ctx.folderIds.projectToolkit
-    });
-    const created = createResponse.data.result || createResponse.data;
+    try {
+      const reportDefinition = (await smartsheet.get(`/reports/${reportId}/definition`)).data;
+      const definition = replaceAccountNumber(reportDefinition, ctx.projectNumber);
+      validateReportDefinitionForUpdate(reportName, definition);
 
-    if (!created?.id) {
-      throw new Error(`Report create did not return an ID for ${newName}`);
+      await smartsheet.put(`/reports/${reportId}/definition`, definition);
+      updatedReport.filterUpdated = true;
+    } catch (error) {
+      updatedReport.filterError = error.message;
+      filterFailures.push({ reportName: updatedName, message: error.message });
+      log.warn({ err: error, reportId, reportName, updatedName }, 'report filter update failed after rename');
     }
 
-    await smartsheet.put(`/reports/${created.id}/definition`, definition);
-    await smartsheet.delete(`/reports/${beforeId}`);
-
-    ctx.reportIds.updatedReports.push({ beforeId, beforeName, afterId: created.id, afterName: newName });
-    if (beforeName.toLowerCase().includes(config.smartsheet.ordersReportMatch.toLowerCase())) {
-      ctx.reportIds.ordersReport = created.id;
+    if (isOrdersReport(reportName) || isOrdersReport(updatedName)) {
+      ctx.reportIds.ordersReport = reportId;
     }
 
-    log.info({ beforeId, beforeName, afterId: created.id, afterName: newName }, 'updated and recreated report with project-specific name');
+    log.info({ reportId, reportName, updatedName, filterUpdated: updatedReport.filterUpdated }, 'processed report while preserving report ID');
+  }
+
+  if (!reportMatches.length) {
+    throw new Error(`No update-filter reports found under project folder. Expected names containing ${config.smartsheet.reportNameContains || '{{update filter #}}'}`);
+  }
+
+  if (filterFailures.length) {
+    throw new Error(`Report renames completed, but ${filterFailures.length} filter update(s) failed: ${filterFailures.map((failure) => `${failure.reportName}: ${failure.message}`).join('; ')}`);
   }
 
   return ctx;
 }
 
-async function loadReportFolders(smartsheet, projectToolkitFolderId) {
-  const mainFolder = (await smartsheet.get(`/folders/${projectToolkitFolderId}`)).data;
-  const updateFilterFolders = findFoldersByNameContains(mainFolder, config.smartsheet.reportFolderNameContains);
-  const folders = [mainFolder];
-
-  for (const folder of updateFilterFolders) {
-    folders.push((await smartsheet.get(`/folders/${folder.id}`)).data);
+async function loadProjectRootFolder(smartsheet, ctx) {
+  const projectRootFolderId = ctx.folderIds.projectFolder || ctx.folderIds.projectToolkit;
+  if (!projectRootFolderId) {
+    throw new Error('Step 03 requires the project root folder ID from step02c');
   }
 
-  return folders;
+  return (await smartsheet.get(`/folders/${projectRootFolderId}`)).data;
 }
 
-function findConfiguredReports(folders) {
-  const matches = [];
-  for (const templateName of config.smartsheet.reportTemplateNames) {
-    const match = folders
-      .flatMap((folder) => (folder.reports || []).map((report) => ({ ...report, parentFolderId: folder.id })))
-      .find((report) => report.name.includes(templateName));
-    if (match) {
-      matches.push(match);
+async function findConfiguredReports(smartsheet, projectRootFolder, ctx) {
+  return findReportsByNameContains(smartsheet, projectRootFolder, config.smartsheet.reportNameContains || '{{update filter #}}', ctx.projectNumber);
+}
+
+async function findReportsByNameContains(smartsheet, container, token, projectNumber, visitedFolderIds = new Set()) {
+  const expected = normalizeReportSearchText(token);
+  const renamedToken = normalizeReportSearchText(projectNumber);
+  const matches = (container.reports || [])
+    .filter((report) => {
+      const name = normalizeReportSearchText(report.name);
+      return name.includes(expected) || name.includes(renamedToken);
+    })
+    .map((report) => ({ ...report, parentFolderId: container.id }));
+
+  for (const folder of container.folders || []) {
+    if (visitedFolderIds.has(folder.id)) {
+      continue;
     }
+    visitedFolderIds.add(folder.id);
+    const folderDetails = (await smartsheet.get(`/folders/${folder.id}`)).data;
+    matches.push(...await findReportsByNameContains(smartsheet, folderDetails, token, projectNumber, visitedFolderIds));
   }
+
   return matches;
 }
 
+function normalizeReportSearchText(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[{}]/g, ' ')
+    .replace(/\bfilters\b/g, 'filter')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function renameReport({ smartsheet, log, reportId, reportName, ctx }) {
+  const newName = buildReportName(reportName, ctx);
+  if (newName === reportName) {
+    return reportName;
+  }
+
+  try {
+    await smartsheet.put(`/reports/${reportId}`, { name: newName });
+    return newName;
+  } catch (error) {
+    log.warn({ err: error, reportId, reportName, newName }, 'report rename failed; keeping existing report name');
+    return reportName;
+  }
+}
+
 function buildReportName(beforeName, ctx) {
-  const name = config.smartsheet.reportNameTemplate
-    .replaceAll('{projectNumber}', ctx.projectNumber)
-    .replaceAll('{projectName}', ctx.projectName)
-    .replaceAll('{templateName}', stripTemplateToken(beforeName));
-  return name.slice(0, 50);
+  return beforeName.replace(/\{\{\s*update\s+filter\s*#?\s*\}\}/gi, ctx.projectNumber).slice(0, 50);
 }
 
 function stripTemplateToken(name) {
   return name.replace(/\{\{.*?\}\}/g, '').replace(/\s+/g, ' ').trim();
 }
 
+function isOrdersReport(reportName) {
+  return reportName.toLowerCase().includes(config.smartsheet.ordersReportMatch.toLowerCase());
+}
+
 function replaceAccountNumber(definition, projectNumber) {
   const placeholder = config.smartsheet.reportAccountPlaceholder;
   const cloned = JSON.parse(JSON.stringify(definition));
+  replaceProjectNumberCriteria(cloned, projectNumber);
 
   function visit(value) {
     if (Array.isArray(value)) {
       return value.map(visit);
     }
     if (value && typeof value === 'object') {
-      return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, visit(item)]));
+      const next = Object.fromEntries(Object.entries(value)
+        .filter(([key]) => key !== 'defaultType' && key !== 'id')
+        .map(([key, item]) => [key, visit(item)]));
+      if (value.defaultType !== undefined && isReportColumnReference(value) && next.type === undefined) {
+        next.type = writableColumnType(value.defaultType);
+      }
+      return next;
     }
     if (typeof value === 'string') {
       return value.replaceAll(placeholder, projectNumber);
@@ -106,16 +155,57 @@ function replaceAccountNumber(definition, projectNumber) {
   return visit(cloned);
 }
 
-function findFoldersByNameContains(container, token) {
-  const expected = String(token).trim().toLowerCase();
-  const matches = [];
-  for (const folder of container.folders || []) {
-    if (String(folder.name).trim().toLowerCase().includes(expected)) {
-      matches.push(folder);
+function replaceProjectNumberCriteria(definition, projectNumber) {
+  for (const criterion of allCriteria(definition.filters)) {
+    if (isProjectNumberColumn(criterion.column)) {
+      criterion.operator = 'EQUAL';
+      criterion.values = [String(projectNumber)];
+      delete criterion.value;
     }
-    matches.push(...findFoldersByNameContains(folder, token));
   }
-  return matches;
+}
+
+function allCriteria(filterExpression) {
+  if (!filterExpression || typeof filterExpression !== 'object') {
+    return [];
+  }
+
+  const direct = Array.isArray(filterExpression.criteria) ? filterExpression.criteria : [];
+  const nested = (filterExpression.nestedCriteria || []).flatMap(allCriteria);
+  return [...direct, ...nested];
+}
+
+function isReportColumnReference(value) {
+  return value.title !== undefined
+    || value.primary === true
+    || value.sheetNameColumn === true
+    || value.systemColumnType !== undefined;
+}
+
+function isProjectNumberColumn(column) {
+  return normalizeFilterText(column?.title) === 'projectnumber'
+    || normalizeFilterText(column?.title) === 'accountnumber';
+}
+
+function normalizeFilterText(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function writableColumnType(defaultType) {
+  const normalized = String(defaultType || '').toUpperCase();
+  const mappings = {
+    TEXTNUMBER: 'TEXT_NUMBER',
+    MULTI_PICKLIST: 'MULTI_PICKLIST',
+    MULTICONTACT: 'MULTI_CONTACT_LIST',
+    CONTACT: 'CONTACT_LIST'
+  };
+  return mappings[normalized] || normalized;
+}
+
+function validateReportDefinitionForUpdate(reportName, definition) {
+  if (!definition.filters || typeof definition.filters !== 'object' || Array.isArray(definition.filters)) {
+    throw new Error(`Report "${reportName}" has no editable filter definition. Add a report filter containing ${config.smartsheet.reportAccountPlaceholder} before running step03.`);
+  }
 }
 
 module.exports = { buildReportName, replaceAccountNumber, run };

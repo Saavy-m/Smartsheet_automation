@@ -1,3 +1,7 @@
+// Step 00 receives the Graph mailbox webhook, validates the notification, parses the forwarded Smartsheet alert email,
+// confirms the project against the Master Project List, and starts the orchestrator with the normalized project context.
+// Helper functions extract email fields, normalize project type, validate webhook state, and read matching master-list cells.
+
 const crypto = require('crypto');
 const config = require('../../config');
 const { createSmartsheetClient } = require('../clients/smartsheetClient');
@@ -90,23 +94,55 @@ function parseProjectDetailsFromEmail(html) {
     .replace(/\s+/g, ' ')
     .trim();
 
-  const projectName = extractField(text, 'Project Name');
-  const projectNumber = extractField(text, 'Project Number');
-  const projectType = config.projectTypeEmailLabels
-    .map((label) => extractField(text, label))
+  const fieldLabels = [
+    'Project Number',
+    'Project Name',
+    'Project Dashboard',
+    'Hourly or Flat Rate',
+    'Project Vertical',
+    'Project Type',
+    'Vertical',
+    'Project Plan',
+    'Comments',
+    'Bypass Deposit on Project start',
+    'Is this a Paterson Project',
+    'Changes made by'
+  ];
+
+  const projectName = extractField(text, 'Project Name', fieldLabels);
+  const projectNumber = extractField(text, 'Project Number', fieldLabels);
+  const patersonProject = extractField(text, 'Is this a Paterson Project', fieldLabels);
+  const projectVertical = config.projectTypeEmailLabels
+    .map((label) => extractField(text, label, fieldLabels))
     .find(Boolean);
+  const projectType = determineProjectType({ patersonProject, projectVertical });
 
   if (!projectName || !projectNumber || !projectType) {
     throw new Error('Could not parse Project Name, Project Number, and Project Type from forwarded alert email');
   }
 
-  return { projectName, projectNumber, projectType: normalizeProjectType(projectType) };
+  return { projectName, projectNumber, projectType: normalizeProjectType(projectType), patersonProject };
 }
 
-function extractField(text, label) {
+function extractField(text, label, fieldLabels = []) {
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = text.match(new RegExp(`${escaped}\\s*[:|-]?\\s*([^|]+?)(?=\\s+[A-Z][A-Za-z ]+\\s*[:|-]|$)`, 'i'));
+  const nextLabels = fieldLabels
+    .filter((candidate) => candidate.toLowerCase() !== label.toLowerCase())
+    .map((candidate) => candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const boundary = nextLabels.length ? `(?=\\s*(?:${nextLabels.join('|')})|$)` : '$';
+  const match = text.match(new RegExp(`${escaped}\\s*[:|-]?\\s*(.+?)${boundary}`, 'i'));
   return match?.[1]?.trim();
+}
+
+function determineProjectType({ patersonProject, projectVertical }) {
+  if (isAffirmative(patersonProject)) {
+    return 'Patterson';
+  }
+  return normalizeProjectType(projectVertical);
+}
+
+function isAffirmative(value) {
+  return /^(yes|y|true)$/i.test(String(value || '').trim());
 }
 
 async function confirmProjectOnMasterList({ smartsheet, parsed }) {
@@ -133,6 +169,7 @@ async function confirmProjectOnMasterList({ smartsheet, parsed }) {
     projectName,
     projectNumber: parsed.projectNumber,
     projectType: parsed.projectType,
+    patersonProject: parsed.patersonProject,
     masterProjectListSheetId: config.smartsheet.masterProjectListSheetId,
     masterProjectRowId: row.id
   };
@@ -162,6 +199,7 @@ function cellValue(row, columnId) {
 module.exports = {
   confirmProjectOnMasterList,
   handleGraphWebhook,
+  determineProjectType,
   parseProjectDetailsFromEmail,
   processNotification,
   registerSubscription,

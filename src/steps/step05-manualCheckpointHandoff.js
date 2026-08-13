@@ -1,3 +1,7 @@
+// Step 05 writes the manual handoff summary, marks manual checklist rows, and emails the configured owner.
+// run() builds the dashboard/Dynamic View handoff summary, updates checklist rows, sends the notification, and records handoff metadata.
+// Helper functions write checklist cells, format email HTML/status/problem text, locate rows/columns, and build Smartsheet cell payloads.
+
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 
@@ -106,7 +110,15 @@ function formatProblems(ctx) {
   if (problems.length === 0) {
     return 'Automation problems: None reported.';
   }
-  return ['Automation problems:', ...problems.map((problem) => `- ${problem.step}: ${problem.message}`)].join('\n');
+  return ['Automation problems:', ...problems.map(formatProblem)].join('\n');
+}
+
+function formatProblem(problem) {
+  const lines = [`- ${problem.step}: ${problem.message}`];
+  if (problem.guidance) {
+    lines.push(`  Guidance: ${problem.guidance}`);
+  }
+  return lines.join('\n');
 }
 
 module.exports = { run };

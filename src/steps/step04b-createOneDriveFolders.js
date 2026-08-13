@@ -1,3 +1,7 @@
+// Step 04b creates the project OneDrive folders from configured template folders.
+// run() copies CAD and Client Files templates into their configured destinations, then renames them for the project.
+// Helper functions start Graph copy operations, poll asynchronous completion, and rename copied folders.
+
 const path = require('path');
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
@@ -5,6 +9,7 @@ const { pollAsyncOperation } = require('../utils/pollAsyncOperation');
 
 async function run(ctx) {
   const log = childLogger(ctx, 'step04b');
+  const finalName = `${ctx.projectName} - ${ctx.projectNumber}`;
 
   ctx.folderIds.oneDrive = ctx.folderIds.oneDrive || {};
   ctx.folderIds.oneDrive.cad = await copyPollRename({
@@ -12,24 +17,18 @@ async function run(ctx) {
     log,
     templatePath: config.oneDrive.cadTemplatePath,
     destinationPath: config.oneDrive.cadDestinationPath,
-    finalName: ctx.projectName,
+    finalName,
     label: 'CAD Files'
   });
 
-  const clientFolderId = await copyPollRename({
+  ctx.folderIds.oneDrive.client = await copyPollRename({
     ctx,
     log,
     templatePath: config.oneDrive.clientTemplatePath,
     destinationPath: config.oneDrive.clientDestinationPath,
-    finalName: ctx.projectName,
+    finalName,
     label: 'Client Files'
   });
-
-  const productionFolder = (await ctx.clients.graph.resolveDriveItemByPath(config.oneDrive.clientProductionPath)).data;
-  const moved = (await ctx.clients.graph.patchDriveItem(clientFolderId, {
-    parentReference: { id: productionFolder.id }
-  })).data;
-  ctx.folderIds.oneDrive.client = moved.id;
 
   log.info({ cadFolderId: ctx.folderIds.oneDrive.cad, clientFolderId: ctx.folderIds.oneDrive.client }, 'created OneDrive project folders');
   return ctx;

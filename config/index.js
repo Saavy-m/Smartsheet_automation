@@ -3,7 +3,6 @@ require('dotenv').config();
 const REQUIRED = [
   'SMARTSHEET_API_TOKEN',
   'SMARTSHEET_GEN009_TEMPLATE_ID',
-  'SMARTSHEET_PROJECT_PLAN_TEMPLATE_ID',
   'SMARTSHEET_Z_ACTIVE_WORKSPACE_ID',
   'SMARTSHEET_MASTER_PROJECT_LIST_SHEET_ID',
   'OFFICE_ADMIN_GROUP_ID',
@@ -35,7 +34,6 @@ const REQUIRED = [
   'CHECKLIST_SIGNED_ROW_LABEL',
   'CHECKLIST_MANUAL_SUMMARY_ROW_LABEL',
   'SMARTSHEET_REPORT_TEMPLATE_NAMES',
-  'SMARTSHEET_REPORT_NAME_TEMPLATE',
   'SMARTSHEET_REPORT_ACCOUNT_PLACEHOLDER',
   'SMARTSHEET_REPORT_FOLDER_NAME_CONTAINS',
   'SMARTSHEET_ORDERS_REPORT_MATCH',
@@ -63,11 +61,30 @@ function getBoolean(name) {
   return value === 'true';
 }
 
+function getOptionalBoolean(name, defaultValue = false) {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    return defaultValue;
+  }
+  if (!['true', 'false'].includes(value.toLowerCase())) {
+    throw new Error(`${name} must be "true" or "false"`);
+  }
+  return value.toLowerCase() === 'true';
+}
+
 function getCsv(name) {
   return getEnv(name)
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function getOptionalString(name, defaultValue = '') {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    return defaultValue;
+  }
+  return value;
 }
 
 function validate() {
@@ -83,13 +100,17 @@ module.exports = {
     token: getEnv('SMARTSHEET_API_TOKEN'),
     changeAgent: process.env.SMARTSHEET_CHANGE_AGENT || 'cmr-project-spin-up',
     gen009TemplateId: getEnv('SMARTSHEET_GEN009_TEMPLATE_ID'),
-    projectPlanTemplateId: getEnv('SMARTSHEET_PROJECT_PLAN_TEMPLATE_ID'),
     zActiveWorkspaceId: getEnv('SMARTSHEET_Z_ACTIVE_WORKSPACE_ID'),
+    zActiveWorkspaceName: getOptionalString('SMARTSHEET_Z_ACTIVE_WORKSPACE_NAME'),
+    projectRootFolderPath: getOptionalString('SMARTSHEET_PROJECT_ROOT_FOLDER_PATH'),
+    projectFolderNameTemplate: getOptionalString('SMARTSHEET_PROJECT_FOLDER_NAME_TEMPLATE', '{projectName} - Project Toolkit'),
+    gen009SheetNameTemplate: getOptionalString('SMARTSHEET_GEN009_SHEET_NAME_TEMPLATE', '{projectName} GEN009'),
     masterProjectListSheetId: getEnv('SMARTSHEET_MASTER_PROJECT_LIST_SHEET_ID'),
     reportTemplateNames: getCsv('SMARTSHEET_REPORT_TEMPLATE_NAMES'),
-    reportNameTemplate: getEnv('SMARTSHEET_REPORT_NAME_TEMPLATE'),
+    renameReports: getOptionalBoolean('SMARTSHEET_RENAME_REPORTS'),
+    reportNameTemplate: process.env.SMARTSHEET_REPORT_NAME_TEMPLATE || '{projectNumber} {templateName}',
     reportAccountPlaceholder: getEnv('SMARTSHEET_REPORT_ACCOUNT_PLACEHOLDER'),
-    reportFolderNameContains: getEnv('SMARTSHEET_REPORT_FOLDER_NAME_CONTAINS'),
+    reportNameContains: getEnv('SMARTSHEET_REPORT_FOLDER_NAME_CONTAINS'),
     ordersReportMatch: getEnv('SMARTSHEET_ORDERS_REPORT_MATCH'),
     ordersReportPublishAccessLevel: getEnv('ORDERS_REPORT_PUBLISH_ACCESS_LEVEL'),
     officeAdminGroupId: getEnv('OFFICE_ADMIN_GROUP_ID')

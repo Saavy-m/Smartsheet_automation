@@ -2,9 +2,10 @@ const express = require('express');
 const config = require('../config');
 const { logger } = require('./utils/logger');
 const trigger = require('./steps/step00-trigger');
+const projectSpinUpApi = require('./routes/projectSpinUpApi');
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '1mb', type: shouldParseJsonBody }));
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });
@@ -17,6 +18,8 @@ app.post('/webhooks/graph/messages', async (req, res, next) => {
     next(error);
   }
 });
+
+app.use('/api/project-spin-up', projectSpinUpApi);
 
 app.post('/webhooks/graph/register', async (req, res, next) => {
   try {
@@ -33,7 +36,11 @@ app.use((error, req, res, next) => {
     next(error);
     return;
   }
-  res.status(500).json({ error: error.message });
+  const body = { error: error.message };
+  if (error.automationReport) {
+    body.automationReport = error.automationReport;
+  }
+  res.status(error.status || 500).json(body);
 });
 
 if (require.main === module) {
@@ -43,3 +50,11 @@ if (require.main === module) {
 }
 
 module.exports = { app };
+
+function shouldParseJsonBody(req) {
+  const contentType = req.headers['content-type'];
+  if (!contentType) {
+    return true;
+  }
+  return /^(application\/json|application\/[^;]+\+json|text\/plain)(;|$)/i.test(contentType);
+}

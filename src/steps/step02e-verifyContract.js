@@ -1,7 +1,12 @@
+// Step 02e verifies whether the project contract attachment appears signed.
+// run() respects DRY_RUN, finds a likely contract attachment, downloads/parses the PDF, writes the signed status, or records manual review.
+// Helper functions find attachments, classify the first PDF line, update checklist rows, and build Smartsheet cell payloads.
+
 const pdfParse = require('pdf-parse');
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 const runStateStore = require('../utils/runStateStore');
+const { buildCell, findColumnByTitle, findRowByPrimaryValue } = require('../utils/smartsheetSheet');
 
 async function run(ctx) {
   const log = childLogger(ctx, 'step02e');
@@ -53,9 +58,8 @@ async function writeSignedStatus(ctx, value) {
   const smartsheet = ctx.clients.smartsheet;
   const sheetId = ctx.sheetIds.gen009Checklist;
   const sheet = (await smartsheet.get(`/sheets/${sheetId}`)).data;
-  const columns = columnsByTitle(sheet);
-  const valueColumn = columns[config.columns.checklistValue];
-  const row = findRowByPrimaryValue(sheet, config.rows.signed);
+  const valueColumn = findColumnByTitle(sheet, config.columns.checklistValue, ['Status', 'Done']);
+  const row = findRowByPrimaryValue(sheet, config.rows.signed, ['Signed LOA', 'Signed Letter of Agreement', 'Contract Signed']);
 
   if (!valueColumn || !row) {
     throw new Error('Checklist is missing signed-status target column or row');
@@ -77,27 +81,3 @@ async function markNeedsReview(ctx, reason) {
 }
 
 module.exports = { classifySignedStatus, run };
-
-function columnsByTitle(sheetOrColumns) {
-  const columns = Array.isArray(sheetOrColumns) ? sheetOrColumns : sheetOrColumns.columns || [];
-  return Object.fromEntries(columns.map((column) => [column.title, column]));
-}
-
-function primaryColumn(sheet) {
-  return (sheet.columns || []).find((column) => column.primary) || sheet.columns?.[0];
-}
-
-function cellValue(row, columnId) {
-  const cell = (row.cells || []).find((item) => item.columnId === columnId);
-  return cell?.displayValue ?? cell?.value;
-}
-
-function findRowByPrimaryValue(sheet, value) {
-  const primary = primaryColumn(sheet);
-  const expected = String(value).trim().toLowerCase();
-  return (sheet.rows || []).find((row) => String(cellValue(row, primary.id) || '').trim().toLowerCase() === expected) || null;
-}
-
-function buildCell(column, value) {
-  return { columnId: column.id, value, strict: false };
-}

@@ -1,3 +1,7 @@
+// Step 04a publishes the Orders report and writes the published URL back to the GEN009 checklist.
+// run() resolves the Orders report ID, enables publishing, stores the URL, and updates the checklist link row.
+// Helper functions find the Orders report, locate checklist rows/columns, read cell values, and build Smartsheet cell payloads.
+
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 

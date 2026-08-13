@@ -1,0 +1,18 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"mcp": {
+			"servers": {
+				"MCP server": {
+					"url": "https://developers.smartsheet.com/mcp",
+					"type": "http"
+				}
+			},
+			"inputs": []
+		}
+	}
+}

@@ -1,3 +1,7 @@
+// Step 06 marks automated checklist rows as Done after successful orchestrator steps.
+// markStepDone() finds the checklist row for a step ref and writes Done; run() is a no-op placeholder for step-module consistency.
+// Helper functions map columns, read cell values, find rows by configured columns, and build Smartsheet cell payloads.
+
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 
