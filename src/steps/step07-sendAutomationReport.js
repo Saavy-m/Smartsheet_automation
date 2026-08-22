@@ -270,10 +270,12 @@ function buildContractSignedSummary(report) {
     label = 'Needs manual review';
   }
 
+  if (contract.attachmentName) {
+    label = `${label} (${contract.attachmentName})`;
+  }
+
   return {
-    label,
-    url: contract.attachmentUrl,
-    linkLabel: contract.attachmentName || 'Open contract'
+    label
   };
 }
 
