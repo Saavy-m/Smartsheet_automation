@@ -83,10 +83,12 @@ async function processNotification(notification, dependencies = {}) {
 
   const message = (await mailGraph.getMessage(config.graph.mailboxUserId, messageId)).data;
   const parsed = parseProjectDetailsFromEmail(message.body?.content || '');
-  const runId = `${parsed.projectNumber}-${crypto.randomUUID()}`;
+  const confirmedProject = await confirmProjectOnMasterList({ smartsheet, parsed });
+  const runId = `${confirmedProject.projectNumber}-${crypto.randomUUID()}`;
 
   const ctx = {
     ...parsed,
+    ...confirmedProject,
     runId,
     sheetIds: {},
     folderIds: {},
