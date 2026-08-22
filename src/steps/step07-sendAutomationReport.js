@@ -211,12 +211,16 @@ function buildEmailHtml({ ctx, report, resources, failureRecap }) {
                 </td>
               </tr>
               <tr>
+                <td style="padding:0 32px 28px 32px;">
+                  <h2 style="margin:0 0 14px 0;font-size:20px;line-height:1.3;color:#12323f;">Failed steps and recovery notes</h2>
+                  ${buildFailureSection(failureRecap)}
+                </td>
+              </tr>
+              <tr>
                 <td style="padding:26px 32px 32px 32px;background:#eef4f6;border-top:1px solid #d8e1e7;">
                   <h2 style="margin:0 0 14px 0;font-size:20px;line-height:1.3;color:#12323f;">Developer's Desk - Automation Logs</h2>
                   <h3 style="margin:18px 0 10px 0;font-family:Verdana,Geneva,sans-serif;font-size:14px;line-height:1.4;color:#315163;">Source and destination URLs</h3>
                   ${buildResourcesTable(resources)}
-                  <h3 style="margin:22px 0 10px 0;font-family:Verdana,Geneva,sans-serif;font-size:14px;line-height:1.4;color:#315163;">Failed steps and recovery notes</h3>
-                  ${buildFailureSection(failureRecap)}
                   <h3 style="margin:22px 0 10px 0;font-family:Verdana,Geneva,sans-serif;font-size:14px;line-height:1.4;color:#315163;">All step results</h3>
                   ${buildStepsTable(report.steps)}
                 </td>
@@ -324,11 +328,12 @@ function buildResourcesTable(resources) {
 }
 
 function buildFailureSection(failureRecap) {
+  const contactHtml = buildRecoveryContactFooter();
   if (!failureRecap.length) {
-    return '<p>No failed steps were recorded.</p>';
+    return `<p style="margin:0 0 12px 0;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.5;color:#23313d;">No failed steps were recorded.</p>${contactHtml}`;
   }
 
-  return failureRecap.map((failure) => `
+  return `${failureRecap.map((failure) => `
     <div style="margin:0 0 12px 0;padding:12px 14px;background:#ffffff;border:1px solid #d8e1e7;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.5;color:#23313d;">
     <p style="margin:0 0 8px 0;"><strong>${escapeHtml(failure.stepRef)}:</strong> ${escapeHtml(failure.status)}</p>
     <p style="margin:0 0 8px 0;"><strong>Error:</strong> ${escapeHtml(failure.message)}</p>
@@ -337,7 +342,18 @@ function buildFailureSection(failureRecap) {
       <p style="margin:8px 0 0 0;"><strong>Relevant info:</strong> ${escapeHtml(problem.message || '')}${problem.guidance ? `<br><strong>Recorded guidance:</strong> ${linkifyText(problem.guidance)}` : ''}</p>
     `).join('')}
     </div>
-  `).join('');
+  `).join('')}${contactHtml}`;
+}
+
+function buildRecoveryContactFooter() {
+  return `
+    <div style="margin:14px 0 0 0;padding:12px 14px;background:#f7fafb;border:1px solid #d8e1e7;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.5;color:#23313d;">
+      <strong>Contact for recovery support:</strong>
+      <a href="mailto:satyamofficial4916@gmail.com" style="color:#0f6674;text-decoration:underline;">satyamofficial4916@gmail.com</a>
+      and
+      <a href="mailto:aron@cmr-design.com" style="color:#0f6674;text-decoration:underline;">aron@cmr-design.com</a>
+    </div>
+  `;
 }
 
 function buildStepsTable(steps) {
