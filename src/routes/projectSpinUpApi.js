@@ -2,7 +2,9 @@ const crypto = require('crypto');
 const express = require('express');
 const orchestrator = require('../orchestrator');
 const { createSmartsheetClient } = require('../clients/smartsheetClient');
+const { createOneDriveGraphClient } = require('../clients/graphClient');
 const step02d = require('../steps/step02d-shareChecklist');
+const step02e = require('../steps/step02e-verifyContract');
 const { logger } = require('../utils/logger');
 
 const router = express.Router();
@@ -79,6 +81,50 @@ router.post('/test-step02d-share', async (req, res, next) => {
       message,
       ccMe,
       share: ctx.step02dShare
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post('/test-step02e-contract', async (req, res, next) => {
+  try {
+    const projectNumber = String(req.body?.projectNumber || req.body?.['Project Number'] || '110232').trim();
+    const checklistSheetId = String(req.body?.checklistSheetId || req.body?.gen009ChecklistSheetId || req.body?.sheetId || '').trim();
+
+    if (!projectNumber || !checklistSheetId) {
+      const error = new Error('Request body must include projectNumber and checklistSheetId for the generated GEN009 checklist');
+      error.status = 400;
+      throw error;
+    }
+
+    const ctx = {
+      runId: `test-step02e-${projectNumber}-${crypto.randomUUID()}`,
+      projectNumber,
+      sheetIds: { gen009Checklist: checklistSheetId },
+      checklistRowMap: {},
+      stepStatus: {},
+      problems: [],
+      clients: {
+        smartsheet: createSmartsheetClient(),
+        graph: createOneDriveGraphClient()
+      }
+    };
+
+    logger.info({ runId: ctx.runId, projectNumber, checklistSheetId }, 'starting step02e contract verification test endpoint');
+    await step02e.run(ctx);
+    logger.info({ runId: ctx.runId, projectNumber, contract: ctx.contract, stepStatus: ctx.stepStatus }, 'completed step02e contract verification test endpoint');
+
+    res.status(201).json({
+      ok: ctx.stepStatus.step02e !== 'needs_manual_review',
+      runId: ctx.runId,
+      step: 'step02e',
+      projectNumber,
+      checklistSheetId,
+      contract: ctx.contract,
+      stepStatus: ctx.stepStatus,
+      checklistRowMap: ctx.checklistRowMap,
+      problems: ctx.problems
     });
   } catch (error) {
     next(error);

@@ -1,6 +1,6 @@
-// Step 05 writes the manual handoff summary, marks manual checklist rows, and records handoff metadata for the final automation report.
-// run() builds the dashboard/Dynamic View handoff summary and updates checklist rows.
-// Helper functions write checklist cells, format email HTML/status/problem text, locate rows/columns, and build Smartsheet cell payloads.
+// Step 05 records manual handoff metadata for the final automation report.
+// run() builds the dashboard/Dynamic View handoff summary for the report email.
+// Helper functions format email/status/problem text and resolve source/destination URLs.
 
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
@@ -18,32 +18,16 @@ async function run(ctx) {
   const manualTasks = await buildManualTasks(ctx, log);
   const summary = buildManualSummary(ctx, manualTasks);
 
-  try {
-    await writeManualSummary(ctx, summary);
-  } catch (error) {
-    log.warn({ err: error }, 'manual handoff summary could not be written to checklist; continuing because this is manual work');
-    ctx.manualCheckpointWarnings = ctx.manualCheckpointWarnings || [];
-    ctx.manualCheckpointWarnings.push(`Checklist summary not written: ${error.message}`);
-  }
-
-  try {
-    await markManualRows(ctx);
-  } catch (error) {
-    log.warn({ err: error }, 'manual checklist rows could not be marked; continuing because this is manual work');
-    ctx.manualCheckpointWarnings = ctx.manualCheckpointWarnings || [];
-    ctx.manualCheckpointWarnings.push(`Manual checklist rows not marked: ${error.message}`);
-  }
-
   ctx.manualCheckpoint = {
     owner: config.manualCheckpointOwnerEmail,
     ordersReportUrl: manualTasks[0].sourceUrl,
     dashboardUrl: manualTasks[0].destinationUrl,
     tasks: manualTasks,
     summary,
-    warnings: ctx.manualCheckpointWarnings || []
+    warnings: []
   };
 
-  log.info({ owner: config.manualCheckpointOwnerEmail, warningCount: ctx.manualCheckpointWarnings?.length || 0 }, 'manual checkpoint handoff recorded');
+  log.info({ owner: config.manualCheckpointOwnerEmail }, 'manual checkpoint handoff recorded');
   return ctx;
 }
 
@@ -169,47 +153,6 @@ async function resolveDashboardPermalink(smartsheet, dashboardId, log) {
   }
 }
 
-async function writeManualSummary(ctx, summary) {
-  const smartsheet = ctx.clients.smartsheet;
-  const sheetId = ctx.sheetIds.gen009Checklist;
-  const sheet = (await smartsheet.get(`/sheets/${sheetId}`)).data;
-  const columns = columnsByTitle(sheet);
-  const valueColumn = columns[config.columns.checklistValue];
-  const row = findRowByPrimaryValue(sheet, config.rows.manualSummary);
-
-  if (!valueColumn || !row) {
-    throw new Error('Checklist is missing manual summary target column or row');
-  }
-
-  await smartsheet.put(`/sheets/${sheetId}/rows`, [{ id: row.id, cells: [buildCell(valueColumn, summary)] }]);
-  ctx.checklistRowMap.manualSummary = row.id;
-}
-
-async function markManualRows(ctx) {
-  const smartsheet = ctx.clients.smartsheet;
-  const sheetId = ctx.sheetIds.gen009Checklist;
-  const sheet = (await smartsheet.get(`/sheets/${sheetId}`)).data;
-  const columns = columnsByTitle(sheet);
-  const statusColumn = columns[config.columns.checklistStatus];
-
-  if (!statusColumn) {
-    throw new Error('Checklist is missing status column');
-  }
-
-  const dashboardRow = findRowByColumnValue(sheet, config.columns.checklistStepRef, 'manual-dashboard-widget');
-  const dynamicViewRow = findRowByColumnValue(sheet, config.columns.checklistStepRef, 'manual-dynamic-view');
-  const rows = [dashboardRow, dynamicViewRow].filter(Boolean);
-
-  if (rows.length !== 2) {
-    throw new Error('Checklist is missing manual checkpoint rows');
-  }
-
-  await smartsheet.put(`/sheets/${sheetId}/rows`, rows.map((row) => ({
-    id: row.id,
-    cells: [buildCell(statusColumn, 'Needs Manual Action')]
-  })));
-}
-
 function formatSignedStatus(ctx) {
   if (ctx.contract?.needsManualReview) {
     return `Needs manual review (${ctx.contract.reason})`;
@@ -240,36 +183,3 @@ function formatProblem(problem) {
 }
 
 module.exports = { run };
-
-function columnsByTitle(sheetOrColumns) {
-  const columns = Array.isArray(sheetOrColumns) ? sheetOrColumns : sheetOrColumns.columns || [];
-  return Object.fromEntries(columns.map((column) => [column.title, column]));
-}
-
-function primaryColumn(sheet) {
-  return (sheet.columns || []).find((column) => column.primary) || sheet.columns?.[0];
-}
-
-function cellValue(row, columnId) {
-  const cell = (row.cells || []).find((item) => item.columnId === columnId);
-  return cell?.displayValue ?? cell?.value;
-}
-
-function findRowByPrimaryValue(sheet, value) {
-  const primary = primaryColumn(sheet);
-  const expected = String(value).trim().toLowerCase();
-  return (sheet.rows || []).find((row) => String(cellValue(row, primary.id) || '').trim().toLowerCase() === expected) || null;
-}
-
-function findRowByColumnValue(sheet, columnTitle, value) {
-  const column = columnsByTitle(sheet)[columnTitle];
-  if (!column) {
-    return null;
-  }
-  const expected = String(value).trim().toLowerCase();
-  return (sheet.rows || []).find((row) => String(cellValue(row, column.id) || '').trim().toLowerCase() === expected) || null;
-}
-
-function buildCell(column, value) {
-  return { columnId: column.id, value, strict: false };
-}

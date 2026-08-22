@@ -20,13 +20,14 @@ async function run(ctx) {
   const sheet = (await smartsheet.get(`/sheets/${sheetId}`)).data;
 
   ctx.sheetIds.projectPlan = sheetId;
-  if (/^hospitality$/i.test(String(ctx.projectType || '').trim())) {
+  const projectPlanType = projectPlanTrimType(ctx);
+  if (projectPlanType === 'HospitalityManualReview') {
     await markProjectPlanNeedsManualTrim(ctx, sheet, sheetId);
     log.warn({ sheetId, projectPlanUrl: projectPlanUrl(sheet, sheetId) }, 'hospitality project plan trim requires manual review');
     return ctx;
   }
 
-  const rowsToDelete = findRowsOutsideProjectType(sheet, ctx.projectType);
+  const rowsToDelete = findRowsOutsideProjectType(sheet, projectPlanType);
 
   log.warn({
     dryRun: config.dryRun,
@@ -256,6 +257,23 @@ function normalizeProjectType(value) {
   if (/^residential$/i.test(value)) return 'Residential';
   if (/^pat{1,2}erson$/i.test(value)) return 'Patterson';
   return String(value || '').trim();
+}
+
+function projectPlanTrimType(ctx) {
+  if (isPatersonProject(ctx)) {
+    return 'Patterson';
+  }
+  if (/^hospitality$/i.test(String(ctx.projectType || '').trim())) {
+    return 'HospitalityManualReview';
+  }
+  return ctx.projectType;
+}
+
+function isPatersonProject(ctx) {
+  if (ctx.patersonProject) {
+    return /^(yes|y|true)$/i.test(String(ctx.patersonProject).trim());
+  }
+  return /^pat{1,2}erson$/i.test(String(ctx.projectType || '').trim());
 }
 
 async function markProjectPlanNeedsManualTrim(ctx, sheet, sheetId) {

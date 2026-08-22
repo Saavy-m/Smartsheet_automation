@@ -29,8 +29,9 @@ async function run(ctx) {
       return ctx;
     }
 
+    const downloadUrl = await resolveAttachmentDownloadUrl(ctx, attachment);
     const graph = ctx.clients.graph;
-    const buffer = await graph.download(attachment.url);
+    const buffer = await graph.download(downloadUrl);
     const parsed = await pdfParse(buffer, { max: 1 });
     const firstLine = (parsed.text || '').split(/\r?\n/).find(Boolean) || '';
     const signed = classifySignedStatus(firstLine);
@@ -51,11 +52,26 @@ async function findSignedContractAttachment(ctx) {
   const { sheetId, rowId } = await resolveProjectRowContext(ctx);
   const response = await smartsheet.get(`/sheets/${sheetId}/rows/${rowId}/attachments`);
   const attachments = response.data.data || [];
-  return attachments.find((attachment) => /letter|agreement|contract|loa/i.test(attachment.name || '')) || attachments[0];
+  const attachment = attachments.find((item) => /letter|agreement|contract|loa/i.test(item.name || '')) || attachments[0];
+  return attachment ? { ...attachment, sheetId } : null;
+}
+
+async function resolveAttachmentDownloadUrl(ctx, attachment) {
+  if (attachment.url) {
+    return attachment.url;
+  }
+
+  const sheetId = attachment.sheetId || normalizeSheetId(config.smartsheet.masterProjectListSheetId);
+  const response = await ctx.clients.smartsheet.get(`/sheets/${sheetId}/attachments/${attachment.id}`);
+  const url = response.data?.url;
+  if (!url) {
+    throw new Error(`Attachment ${attachment.id || attachment.name || 'unknown'} did not include a download URL`);
+  }
+  return url;
 }
 
 async function resolveProjectRowContext(ctx) {
-  const sheetId = normalizeSheetId(ctx.masterProjectListSheetId || config.smartsheet.masterProjectListSheetId);
+  const sheetId = normalizeSheetId(config.smartsheet.masterProjectListSheetId);
 
   if (!sheetId) {
     throw new Error('Master Project List sheet id was not provided');
@@ -107,14 +123,29 @@ async function writeSignedStatus(ctx, value) {
   const sheetId = ctx.sheetIds.gen009Checklist;
   const sheet = (await smartsheet.get(`/sheets/${sheetId}`)).data;
   const valueColumn = findColumnByTitle(sheet, config.columns.checklistValue, ['Status', 'Done']);
-  const row = findRowByPrimaryValue(sheet, config.rows.signed, ['Signed LOA', 'Signed Letter of Agreement', 'Contract Signed']);
+  const row = findRowByPrimaryValue(sheet, 'Verify letter of agreement was attached')
+    || findRowByPrimaryValue(sheet, config.rows.signed, ['Signed LOA', 'Signed Letter of Agreement', 'Contract Signed']);
 
   if (!valueColumn || !row) {
     throw new Error('Checklist is missing signed-status target column or row');
   }
 
-  await smartsheet.put(`/sheets/${sheetId}/rows`, [{ id: row.id, cells: [buildCell(valueColumn, value)] }]);
+  await smartsheet.put(`/sheets/${sheetId}/rows`, [{ id: row.id, cells: [buildCell(valueColumn, checklistStatusValue(valueColumn, value))] }]);
   ctx.checklistRowMap.signed = row.id;
+}
+
+function checklistStatusValue(column, value) {
+  const options = column.options || [];
+  if (options.includes(value)) {
+    return value;
+  }
+  if (String(value).toLowerCase() === 'yes' && options.includes('Done')) {
+    return 'Done';
+  }
+  if (String(value).toLowerCase() === 'no' && options.includes('N/A')) {
+    return 'N/A';
+  }
+  return value;
 }
 
 async function markNeedsReview(ctx, reason) {
@@ -123,9 +154,6 @@ async function markNeedsReview(ctx, reason) {
   ctx.problems = ctx.problems || [];
   ctx.problems.push({ step: 'step02e', message: reason });
   await runStateStore.markStepNeedsManualReview(ctx, 'step02e', { reason });
-  await writeSignedStatus(ctx, 'Needs Manual Review').catch((error) => {
-    ctx.log?.warn({ err: error }, 'could not write contract manual-review status to checklist');
-  });
 }
 
 module.exports = { classifySignedStatus, normalizeSheetId, run };

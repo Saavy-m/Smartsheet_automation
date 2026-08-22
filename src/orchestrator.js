@@ -27,7 +27,6 @@ const automatedChecklistSteps = new Set([
   'step02d',
   'step02e',
   'step03',
-  'step04a',
   'step04b'
 ]);
 

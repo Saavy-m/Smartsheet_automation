@@ -4,6 +4,7 @@
 
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
+const { buildCell, findColumnByTitle, findRowByPrimaryValue } = require('../utils/smartsheetSheet');
 
 async function run(ctx) {
   const log = childLogger(ctx, 'step04a');
@@ -89,9 +90,8 @@ async function writeOrdersReportUrl(ctx, url) {
   const smartsheet = ctx.clients.smartsheet;
   const sheetId = ctx.sheetIds.gen009Checklist;
   const sheet = (await smartsheet.get(`/sheets/${sheetId}`)).data;
-  const columns = columnsByTitle(sheet);
-  const linkColumn = columns[config.columns.checklistLink];
-  const row = findRowByPrimaryValue(sheet, config.smartsheet.ordersReportMatch);
+  const linkColumn = findColumnByTitle(sheet, config.columns.checklistLink, ['URL', 'Published URL', 'Report Link', config.columns.checklistValue]);
+  const row = findRowByPrimaryValue(sheet, config.smartsheet.ordersReportMatch, ['Project Orders', 'Order Report', 'Orders Report', 'Published Orders Report']);
 
   if (!linkColumn || !row) {
     throw new Error('Checklist is missing Orders report link target column or row');
@@ -102,27 +102,3 @@ async function writeOrdersReportUrl(ctx, url) {
 }
 
 module.exports = { run };
-
-function columnsByTitle(sheetOrColumns) {
-  const columns = Array.isArray(sheetOrColumns) ? sheetOrColumns : sheetOrColumns.columns || [];
-  return Object.fromEntries(columns.map((column) => [column.title, column]));
-}
-
-function primaryColumn(sheet) {
-  return (sheet.columns || []).find((column) => column.primary) || sheet.columns?.[0];
-}
-
-function cellValue(row, columnId) {
-  const cell = (row.cells || []).find((item) => item.columnId === columnId);
-  return cell?.displayValue ?? cell?.value;
-}
-
-function findRowByPrimaryValue(sheet, value) {
-  const primary = primaryColumn(sheet);
-  const expected = String(value).trim().toLowerCase();
-  return (sheet.rows || []).find((row) => String(cellValue(row, primary.id) || '').trim().toLowerCase() === expected) || null;
-}
-
-function buildCell(column, value) {
-  return { columnId: column.id, value, strict: false };
-}
