@@ -238,12 +238,11 @@ function buildProjectSummaryTable(report) {
     ['Project Name', report.projectName],
     ['Project Number', report.projectNumber],
     ['Project Type', report.projectType || 'Not recorded'],
+    ['Contract Signed', buildContractSignedSummary(report)],
     ['Run ID', report.runId],
     ['Completed Steps', report.passedSteps],
     ['Failed Steps', report.failedSteps],
-    ['Manual Review Steps', report.manualReviewSteps],
-    ['Skipped Steps', report.skippedSteps],
-    ['Dry Run Steps', report.dryRunSteps]
+    ['Manual Review Steps', report.manualReviewSteps]
   ];
 
   return `
@@ -252,12 +251,41 @@ function buildProjectSummaryTable(report) {
         ${rows.map(([label, value]) => `
           <tr>
             <th align="left" style="width:34%;padding:11px 12px;background:#f7fafb;border-bottom:1px solid #e5edf1;color:#315163;font-weight:700;">${escapeHtml(label)}</th>
-            <td style="padding:11px 12px;border-bottom:1px solid #e5edf1;color:#23313d;">${escapeHtml(value)}</td>
+            <td style="padding:11px 12px;border-bottom:1px solid #e5edf1;color:#23313d;">${renderSummaryValue(value)}</td>
           </tr>
         `).join('')}
       </tbody>
     </table>
   `;
+}
+
+function buildContractSignedSummary(report) {
+  const contract = report.contract || {};
+  let label = 'Not checked';
+  if (contract.signed === true) {
+    label = 'Yes';
+  } else if (contract.signed === false) {
+    label = 'No - unsigned PDF';
+  } else if (contract.needsManualReview) {
+    label = 'Needs manual review';
+  }
+
+  return {
+    label,
+    url: contract.attachmentUrl,
+    linkLabel: contract.attachmentName || 'Open contract'
+  };
+}
+
+function renderSummaryValue(value) {
+  if (!value || typeof value !== 'object') {
+    return escapeHtml(value);
+  }
+  const text = escapeHtml(value.label || '');
+  if (!value.url) {
+    return text;
+  }
+  return `${text}<div style="margin-top:4px;">${buildNamedLink(value.linkLabel || 'Open link', value.url)}</div>`;
 }
 
 function buildManualWorkSection(ctx) {

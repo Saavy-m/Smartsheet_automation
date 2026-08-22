@@ -35,10 +35,21 @@ async function run(ctx) {
     const parsed = await pdfParse(buffer, { max: 1 });
     const firstLine = (parsed.text || '').split(/\r?\n/).find(Boolean) || '';
     const signed = classifySignedStatus(firstLine);
+    const contract = {
+      signed,
+      attachmentId: attachment.id,
+      attachmentName: attachment.name || '',
+      attachmentUrl: downloadUrl,
+      signedLine: signed ? firstLine : '',
+      firstLine
+    };
 
     await writeSignedStatus(ctx, signed ? 'Yes' : 'No');
-    ctx.contract = { signed, attachmentId: attachment.id, signedLine: signed ? firstLine : '', firstLine };
+    ctx.contract = contract;
     log.info({ signed, attachmentId: attachment.id }, 'verified signed contract PDF first line');
+    if (!signed) {
+      await markNeedsReview(ctx, 'Contract attachment was found but did not appear signed', contract);
+    }
     return ctx;
   } catch (error) {
     log.warn({ err: error }, 'contract verification needs manual review');
@@ -148,9 +159,9 @@ function checklistStatusValue(column, value) {
   return value;
 }
 
-async function markNeedsReview(ctx, reason) {
+async function markNeedsReview(ctx, reason, contract = {}) {
   ctx.stepStatus.step02e = 'needs_manual_review';
-  ctx.contract = { needsManualReview: true, reason };
+  ctx.contract = { ...contract, needsManualReview: true, reason };
   ctx.problems = ctx.problems || [];
   ctx.problems.push({ step: 'step02e', message: reason });
   await runStateStore.markStepNeedsManualReview(ctx, 'step02e', { reason });

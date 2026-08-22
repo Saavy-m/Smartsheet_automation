@@ -20,6 +20,7 @@ function buildAutomationReport(ctx) {
     projectNumber: ctx.projectNumber,
     projectName: ctx.projectName,
     projectType: ctx.projectType,
+    contract: ctx.contract,
     stoppedAfterStep: ctx.stoppedAfterStep,
     totalStepsReported: steps.length,
     passedSteps: counts.completed,

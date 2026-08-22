@@ -6,6 +6,8 @@ const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 const { retryResourceNotReady } = require('../utils/retryResourceNotReady');
 
+const REPORT_DEFINITION_READ_ONLY_FIELDS = new Set(['defaultType', 'forceNullsToBottom', 'id']);
+
 async function run(ctx) {
   const log = childLogger(ctx, 'step03');
   const smartsheet = ctx.clients.smartsheet;
@@ -149,7 +151,7 @@ function replaceAccountNumber(definition, projectNumber) {
     }
     if (value && typeof value === 'object') {
       const next = Object.fromEntries(Object.entries(value)
-        .filter(([key]) => key !== 'defaultType' && key !== 'id')
+        .filter(([key]) => !REPORT_DEFINITION_READ_ONLY_FIELDS.has(key))
         .map(([key, item]) => [key, visit(item)]));
       if (value.defaultType !== undefined && isReportColumnReference(value) && next.type === undefined) {
         next.type = writableColumnType(value.defaultType);
