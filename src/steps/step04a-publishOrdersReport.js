@@ -1,5 +1,5 @@
 // Step 04a publishes the Orders report and writes the published URL back to the GEN009 checklist.
-// run() resolves the Orders report ID, enables publishing, stores the URL, and updates the checklist link row.
+// run() resolves the Orders report ID, enables read-only publishing, stores the URL/embed code, and updates the checklist link row.
 // Helper functions find the Orders report, locate checklist rows/columns, read cell values, and build Smartsheet cell payloads.
 
 const config = require('../../config');
@@ -11,24 +11,71 @@ async function run(ctx) {
   const reportId = ctx.reportIds.ordersReport || findOrdersReportId(ctx);
 
   if (!reportId) {
-    throw new Error('Orders report ID was not found after report update step');
+    log.warn('Orders report ID was not found after report update step; manual report link remains required');
+    ctx.ordersReportPublish = {
+      needsManualLink: true,
+      reason: 'Orders report ID was not found after report update step'
+    };
+    return ctx;
   }
 
-  const published = (await smartsheet.put(`/reports/${reportId}/publish`, {
-    readOnlyFullEnabled: true,
-    accessLevel: config.smartsheet.ordersReportPublishAccessLevel
-  })).data;
+  let published;
+  try {
+    published = (await smartsheet.put(`/reports/${reportId}/publish`, {
+      readOnlyFullEnabled: true,
+      readOnlyFullAccessibleBy: config.smartsheet.ordersReportPublishAccessLevel,
+      readOnlyFullDefaultView: 'GRID'
+    })).data;
+  } catch (error) {
+    log.warn({ err: error, reportId }, 'could not publish Orders report automatically; manual report link remains required');
+    ctx.reportIds.ordersReport = reportId;
+    ctx.ordersReportPublish = {
+      needsManualLink: true,
+      reason: error.message
+    };
+    return ctx;
+  }
 
   const url = published.readOnlyFullUrl || published.result?.readOnlyFullUrl;
   if (!url) {
-    throw new Error('Smartsheet publish response did not include readOnlyFullUrl');
+    log.warn({ reportId }, 'Smartsheet publish response did not include readOnlyFullUrl; manual report link remains required');
+    ctx.reportIds.ordersReport = reportId;
+    ctx.ordersReportPublish = {
+      needsManualLink: true,
+      reason: 'Smartsheet publish response did not include readOnlyFullUrl'
+    };
+    return ctx;
   }
 
-  await writeOrdersReportUrl(ctx, url);
+  const embedCode = buildEmbedCode(url);
   ctx.publishedUrls.ordersReport = url;
+  ctx.publishedEmbeds = ctx.publishedEmbeds || {};
+  ctx.publishedEmbeds.ordersReport = embedCode;
+  ctx.publishStatus = ctx.publishStatus || {};
+  ctx.publishStatus.ordersReport = published.result || published;
   ctx.reportIds.ordersReport = reportId;
-  log.info({ reportId }, 'published Orders report and wrote URL to checklist');
+
+  try {
+    await writeOrdersReportUrl(ctx, url);
+  } catch (error) {
+    log.warn({ err: error, reportId }, 'published Orders report but could not write URL to checklist; URL will be provided in report');
+    ctx.ordersReportPublish = {
+      ...(ctx.ordersReportPublish || {}),
+      checklistWriteSkipped: true,
+      checklistWriteReason: error.message
+    };
+  }
+
+  log.info({ reportId, checklistWriteSkipped: Boolean(ctx.ordersReportPublish?.checklistWriteSkipped) }, 'published Orders report');
   return ctx;
+}
+
+function buildEmbedCode(url) {
+  return `<iframe src="${escapeAttribute(url)}" width="100%" height="650" frameborder="0"></iframe>`;
+}
+
+function escapeAttribute(value) {
+  return String(value || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function findOrdersReportId(ctx) {

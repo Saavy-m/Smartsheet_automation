@@ -6,7 +6,7 @@ const pdfParse = require('pdf-parse');
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 const runStateStore = require('../utils/runStateStore');
-const { buildCell, findColumnByTitle, findRowByPrimaryValue } = require('../utils/smartsheetSheet');
+const { buildCell, cellValue, findColumnByTitle, findRowByPrimaryValue } = require('../utils/smartsheetSheet');
 
 async function run(ctx) {
   const log = childLogger(ctx, 'step02e');
@@ -18,6 +18,11 @@ async function run(ctx) {
   }
 
   try {
+    if (!ctx.projectNumber) {
+      await markNeedsReview(ctx, 'Project number was not provided; skipping automatic contract attachment verification');
+      return ctx;
+    }
+
     const attachment = await findSignedContractAttachment(ctx);
     if (!attachment) {
       await markNeedsReview(ctx, 'No Letter of Agreement attachment found');
@@ -26,12 +31,12 @@ async function run(ctx) {
 
     const graph = ctx.clients.graph;
     const buffer = await graph.download(attachment.url);
-    const parsed = await pdfParse(buffer);
+    const parsed = await pdfParse(buffer, { max: 1 });
     const firstLine = (parsed.text || '').split(/\r?\n/).find(Boolean) || '';
     const signed = classifySignedStatus(firstLine);
 
     await writeSignedStatus(ctx, signed ? 'Yes' : 'No');
-    ctx.contract = { signed, attachmentId: attachment.id, firstLine };
+    ctx.contract = { signed, attachmentId: attachment.id, signedLine: signed ? firstLine : '', firstLine };
     log.info({ signed, attachmentId: attachment.id }, 'verified signed contract PDF first line');
     return ctx;
   } catch (error) {
@@ -43,15 +48,58 @@ async function run(ctx) {
 
 async function findSignedContractAttachment(ctx) {
   const smartsheet = ctx.clients.smartsheet;
-  const sheetId = ctx.masterProjectListSheetId;
-  const rowId = ctx.masterProjectRowId;
+  const { sheetId, rowId } = await resolveProjectRowContext(ctx);
   const response = await smartsheet.get(`/sheets/${sheetId}/rows/${rowId}/attachments`);
   const attachments = response.data.data || [];
   return attachments.find((attachment) => /letter|agreement|contract|loa/i.test(attachment.name || '')) || attachments[0];
 }
 
+async function resolveProjectRowContext(ctx) {
+  const sheetId = normalizeSheetId(ctx.masterProjectListSheetId || config.smartsheet.masterProjectListSheetId);
+
+  if (!sheetId) {
+    throw new Error('Master Project List sheet id was not provided');
+  }
+
+  if (ctx.masterProjectRowId) {
+    return { sheetId, rowId: ctx.masterProjectRowId };
+  }
+
+  const sheet = (await ctx.clients.smartsheet.get(`/sheets/${sheetId}`)).data;
+  const projectNumberColumn = findColumnByTitle(sheet, config.columns.masterProjectNumber, ['Project Number']);
+
+  if (!projectNumberColumn) {
+    throw new Error(`Project List is missing project number column: ${config.columns.masterProjectNumber}`);
+  }
+
+  const expectedProjectNumber = String(ctx.projectNumber).trim();
+  const row = (sheet.rows || []).find((candidate) => {
+    return String(cellValue(candidate, projectNumberColumn.id) || '').trim() === expectedProjectNumber;
+  });
+
+  if (!row) {
+    throw new Error(`Project ${ctx.projectNumber} was not found on the Project List`);
+  }
+
+  ctx.masterProjectListSheetId = sheetId;
+  ctx.masterProjectRowId = row.id;
+  return { sheetId, rowId: row.id };
+}
+
+function normalizeSheetId(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/\/sheets\/([^/?#]+)/i);
+  return match?.[1] || text;
+}
+
 function classifySignedStatus(firstLine) {
-  return firstLine.includes(config.signedKeyword);
+  const signedPrefix = String(config.signedKeyword || '').trim().replace(/:\s*$/, '');
+  const signedPattern = new RegExp(`^${escapeRegExp(signedPrefix)}:\\s*\\S+\\s*$`);
+  return signedPattern.test(String(firstLine || '').trim());
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function writeSignedStatus(ctx, value) {
@@ -80,4 +128,4 @@ async function markNeedsReview(ctx, reason) {
   });
 }
 
-module.exports = { classifySignedStatus, run };
+module.exports = { classifySignedStatus, normalizeSheetId, run };

@@ -5,6 +5,7 @@
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 const runStateStore = require('../utils/runStateStore');
+const { retryResourceNotReady } = require('../utils/retryResourceNotReady');
 const { findColumnByTitle, normalizeLookupKey } = require('../utils/smartsheetSheet');
 
 const TASK_NAME_COLUMN = 'Task Name';
@@ -12,7 +13,10 @@ const TASK_NAME_COLUMN = 'Task Name';
 async function run(ctx) {
   const log = childLogger(ctx, 'step02c');
   const smartsheet = ctx.clients.smartsheet;
-  const sheetId = ctx.sheetIds.projectPlan || await resolveProjectPlanSheetId(ctx);
+  const sheetId = ctx.sheetIds.projectPlan || await retryResourceNotReady(
+    () => resolveProjectPlanSheetId(ctx),
+    { log, resourceName: 'project folder or Project Plan sheet' }
+  );
   const sheet = (await smartsheet.get(`/sheets/${sheetId}`)).data;
 
   ctx.sheetIds.projectPlan = sheetId;

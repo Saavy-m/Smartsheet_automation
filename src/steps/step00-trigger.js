@@ -5,23 +5,53 @@
 const crypto = require('crypto');
 const config = require('../../config');
 const { createSmartsheetClient } = require('../clients/smartsheetClient');
-const { createGraphClient } = require('../clients/graphClient');
+const { createMailboxGraphClient, createOneDriveGraphClient } = require('../clients/graphClient');
 const { childLogger } = require('../utils/logger');
 
-async function registerSubscription({ graph = createGraphClient(), log } = {}) {
-  const expirationDateTime = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+const GRAPH_SUBSCRIPTION_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function registerSubscription({ graph = createMailboxGraphClient(), log, callbackUrl = config.graph.callbackUrl, clientState = config.graph.clientState, expirationDateTime } = {}) {
+  const subscriptionExpiration = expirationDateTime || new Date(Date.now() + GRAPH_SUBSCRIPTION_TTL_MS).toISOString();
+  const resource = mailboxMessageResource(config.graph.mailboxUserId);
+  const existingSubscription = await findSubscription({ graph, resource, callbackUrl });
+
+  if (existingSubscription) {
+    const response = await graph.updateSubscription(existingSubscription.id, { expirationDateTime: subscriptionExpiration });
+
+    if (log) {
+      log.info({ subscriptionId: response.data.id, expirationDateTime: response.data.expirationDateTime }, 'renewed Graph mailbox subscription');
+    }
+
+    return response.data;
+  }
+
   const response = await graph.createSubscription({
     mailboxUserId: config.graph.mailboxUserId,
-    callbackUrl: config.graph.callbackUrl,
-    clientState: config.graph.clientState,
-    expirationDateTime
+    callbackUrl,
+    clientState,
+    expirationDateTime: subscriptionExpiration
   });
 
   if (log) {
-    log.info({ subscriptionId: response.data.id, expirationDateTime }, 'registered Graph mailbox subscription');
+    log.info({ subscriptionId: response.data.id, expirationDateTime: subscriptionExpiration }, 'registered Graph mailbox subscription');
   }
 
   return response.data;
+}
+
+async function findSubscription({ graph, resource, callbackUrl }) {
+  const response = await graph.listSubscriptions();
+  return (response.data?.value || []).find((subscription) => (
+    subscription.resource === resource && subscription.notificationUrl === callbackUrl
+  ));
+}
+
+function mailboxMessageResource(mailboxUserId) {
+  return `/users/${mailboxUserId}/mailFolders('Inbox')/messages`;
 }
 
 async function handleGraphWebhook(req, res, dependencies = {}) {
@@ -41,7 +71,8 @@ async function handleGraphWebhook(req, res, dependencies = {}) {
 async function processNotification(notification, dependencies = {}) {
   validateClientState(notification.clientState);
 
-  const graph = dependencies.graph || createGraphClient();
+  const mailGraph = dependencies.mailGraph || dependencies.graph || createMailboxGraphClient();
+  const oneDriveGraph = dependencies.oneDriveGraph || createOneDriveGraphClient();
   const smartsheet = dependencies.smartsheet || createSmartsheetClient();
   const orchestrator = dependencies.orchestrator || require('../orchestrator');
   const messageId = notification.resourceData?.id || extractMessageId(notification.resource);
@@ -50,13 +81,12 @@ async function processNotification(notification, dependencies = {}) {
     throw new Error('Graph notification did not include a message id');
   }
 
-  const message = (await graph.getMessage(config.graph.mailboxUserId, messageId)).data;
+  const message = (await mailGraph.getMessage(config.graph.mailboxUserId, messageId)).data;
   const parsed = parseProjectDetailsFromEmail(message.body?.content || '');
-  const masterDetails = await confirmProjectOnMasterList({ smartsheet, parsed });
   const runId = `${parsed.projectNumber}-${crypto.randomUUID()}`;
 
   const ctx = {
-    ...masterDetails,
+    ...parsed,
     runId,
     sheetIds: {},
     folderIds: {},
@@ -64,9 +94,16 @@ async function processNotification(notification, dependencies = {}) {
     publishedUrls: {},
     checklistRowMap: {},
     stepStatus: {},
-    clients: { smartsheet, graph }
+    clients: { smartsheet, mailGraph, oneDriveGraph }
   };
   ctx.log = childLogger(ctx, 'trigger');
+
+  const automationStartDelayMs = dependencies.automationStartDelayMs ?? config.automationStartDelayMs;
+  if (automationStartDelayMs > 0) {
+    ctx.log.info({ delaySeconds: automationStartDelayMs / 1000 }, 'delaying project spin-up run after forwarded alert email');
+    await (dependencies.delay || delay)(automationStartDelayMs);
+  }
+
   ctx.log.info('starting project spin-up run from forwarded alert email');
 
   await orchestrator.run(ctx);
@@ -111,6 +148,7 @@ function parseProjectDetailsFromEmail(html) {
 
   const projectName = extractField(text, 'Project Name', fieldLabels);
   const projectNumber = extractField(text, 'Project Number', fieldLabels);
+  const projectDashboardUrl = extractField(text, 'Project Dashboard', fieldLabels);
   const patersonProject = extractField(text, 'Is this a Paterson Project', fieldLabels);
   const projectVertical = config.projectTypeEmailLabels
     .map((label) => extractField(text, label, fieldLabels))
@@ -121,7 +159,7 @@ function parseProjectDetailsFromEmail(html) {
     throw new Error('Could not parse Project Name, Project Number, and Project Type from forwarded alert email');
   }
 
-  return { projectName, projectNumber, projectType: normalizeProjectType(projectType), patersonProject };
+  return { projectName, projectNumber, projectVertical, projectType: normalizeProjectType(projectType), patersonProject, projectDashboardUrl };
 }
 
 function extractField(text, label, fieldLabels = []) {
@@ -130,8 +168,8 @@ function extractField(text, label, fieldLabels = []) {
     .filter((candidate) => candidate.toLowerCase() !== label.toLowerCase())
     .map((candidate) => candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const boundary = nextLabels.length ? `(?=\\s*(?:${nextLabels.join('|')})|$)` : '$';
-  const match = text.match(new RegExp(`${escaped}\\s*[:|-]?\\s*(.+?)${boundary}`, 'i'));
-  return match?.[1]?.trim();
+  const match = text.match(new RegExp(`${escaped}\\s*[:|-]?\\s*(.*?)${boundary}`, 'i'));
+  return match?.[1]?.trim() || '';
 }
 
 function determineProjectType({ patersonProject, projectVertical }) {
@@ -146,6 +184,10 @@ function isAffirmative(value) {
 }
 
 async function confirmProjectOnMasterList({ smartsheet, parsed }) {
+  if (isPlaceholder(config.smartsheet.masterProjectListSheetId)) {
+    throw new Error('SMARTSHEET_MASTER_PROJECT_LIST_SHEET_ID must be set to the real Project List sheet ID before webhook-triggered runs can confirm projects');
+  }
+
   const sheet = (await smartsheet.get(`/sheets/${config.smartsheet.masterProjectListSheetId}`)).data;
   const columns = columnsByTitle(sheet);
   const numberColumn = columns[config.columns.masterProjectNumber];
@@ -170,9 +212,14 @@ async function confirmProjectOnMasterList({ smartsheet, parsed }) {
     projectNumber: parsed.projectNumber,
     projectType: parsed.projectType,
     patersonProject: parsed.patersonProject,
+    projectDashboardUrl: parsed.projectDashboardUrl,
     masterProjectListSheetId: config.smartsheet.masterProjectListSheetId,
     masterProjectRowId: row.id
   };
+}
+
+function isPlaceholder(value) {
+  return !value || /^replace-me$/i.test(String(value).trim());
 }
 
 function normalizeProjectType(value) {

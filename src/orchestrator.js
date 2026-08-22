@@ -1,5 +1,5 @@
 const { createSmartsheetClient } = require('./clients/smartsheetClient');
-const { createGraphClient } = require('./clients/graphClient');
+const { createMailboxGraphClient, createOneDriveGraphClient } = require('./clients/graphClient');
 const { childLogger } = require('./utils/logger');
 const { addStepResult, buildAutomationReport } = require('./utils/automationReport');
 const runStateStore = require('./utils/runStateStore');
@@ -15,7 +15,8 @@ const steps = [
   ['step03', require('./steps/step03-updateAndRenameReports')],
   ['step04a', require('./steps/step04a-publishOrdersReport')],
   ['step04b', require('./steps/step04b-createOneDriveFolders')],
-  ['step05', require('./steps/step05-manualCheckpointHandoff')]
+  ['step05', require('./steps/step05-manualCheckpointHandoff')],
+  ['step07', require('./steps/step07-sendAutomationReport')]
 ];
 
 const automatedChecklistSteps = new Set([
@@ -36,6 +37,7 @@ async function run(initialCtx, options = {}) {
   let ctx = {
     sheetIds: {},
     folderIds: {},
+    folderUrls: {},
     reportIds: {},
     publishedUrls: {},
     checklistRowMap: {},
@@ -44,10 +46,13 @@ async function run(initialCtx, options = {}) {
     ...initialCtx
   };
 
-  ctx.clients = ctx.clients || {
+  ctx.clients = {
     smartsheet: createSmartsheetClient(),
-    graph: createGraphClient()
+    mailGraph: createMailboxGraphClient(),
+    oneDriveGraph: createOneDriveGraphClient(),
+    ...ctx.clients
   };
+  ctx.clients.graph = ctx.clients.graph || ctx.clients.oneDriveGraph;
   ctx.log = ctx.log || childLogger(ctx, 'orchestrator');
 
   for (const [stepRef, stepModule] of steps) {
@@ -88,7 +93,8 @@ async function run(initialCtx, options = {}) {
       addStepResult(ctx, {
         stepRef,
         status: 'completed',
-        outcome: ctx.stepStatus?.[stepRef] || 'completed'
+        outcome: ctx.stepStatus?.[stepRef] || 'completed',
+        message: buildStepMessage(stepRef, ctx)
       });
 
       if (options.stopAfterStep === stepRef) {
@@ -119,6 +125,14 @@ async function run(initialCtx, options = {}) {
   ctx.automationReport = buildAutomationReport(ctx);
   ctx.log.info({ failedSteps: ctx.automationReport.failedSteps }, 'automated run finished; manual rows may remain open by design');
   return ctx;
+}
+
+function buildStepMessage(stepRef, ctx) {
+  if (stepRef === 'step02e' && ctx.contract?.signedLine) {
+    return `Signed contract line: ${ctx.contract.signedLine}`;
+  }
+
+  return undefined;
 }
 
 module.exports = { run };

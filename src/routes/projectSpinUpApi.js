@@ -1,14 +1,20 @@
 const crypto = require('crypto');
 const express = require('express');
 const orchestrator = require('../orchestrator');
+const { createSmartsheetClient } = require('../clients/smartsheetClient');
+const step02d = require('../steps/step02d-shareChecklist');
+const { logger } = require('../utils/logger');
 
 const router = express.Router();
+
+const TEST_STEP02D_SHEET_ID = '4587817047904132';
+const TEST_STEP02D_EMAIL = 'satyamshukla4916@gmail.com';
 
 router.post('/', async (req, res, next) => {
   try {
     const project = normalizeProjectPayload(req.body);
     requireProjectType(project);
-    const ctx = await runThroughReportUpdate(project);
+    const ctx = await runFullWorkflow(project);
 
     res.status(201).json(buildRunResponse(ctx));
   } catch (error) {
@@ -27,11 +33,79 @@ router.post('/test-step01', async (req, res, next) => {
   }
 });
 
+router.post('/test-step02d-share', async (req, res, next) => {
+  try {
+    const sheetId = String(req.body?.sheetId || TEST_STEP02D_SHEET_ID).trim();
+    const email = String(req.body?.email || TEST_STEP02D_EMAIL).trim();
+    const useSmartsheetDefaultEmail = getOptionalRequestBoolean(req.body?.useSmartsheetDefaultEmail ?? req.body?.omitShareEmailFields, false);
+    const subject = useSmartsheetDefaultEmail ? undefined : String(req.body?.subject || 'Step 2d Smartsheet share email test').trim();
+    const message = useSmartsheetDefaultEmail ? undefined : String(req.body?.message || `Testing Smartsheet share notification email for sheet ${sheetId}.`).trim();
+    const ccMe = useSmartsheetDefaultEmail ? undefined : getOptionalRequestBoolean(req.body?.ccMe ?? req.body?.ccMyself, true);
+
+    if (!sheetId || !email) {
+      const error = new Error('Request body must include sheetId and email, or use the configured test defaults');
+      error.status = 400;
+      throw error;
+    }
+
+    logger.info({ sheetId, email, sendEmail: true, useSmartsheetDefaultEmail, subject, message, ccMe }, 'starting step02d share test endpoint');
+
+    const ctx = {
+      runId: `test-step02d-${crypto.randomUUID()}`,
+      projectNumber: 'test-step02d',
+      sheetIds: { gen009Checklist: sheetId },
+      officeAdminGroupId: 'replace-me',
+      officeAdminEmails: [email],
+      useSmartsheetDefaultShareEmail: useSmartsheetDefaultEmail,
+      shareEmailSubject: subject,
+      shareEmailMessage: message,
+      shareEmailCcMe: ccMe,
+      clients: { smartsheet: createSmartsheetClient() }
+    };
+
+    await step02d.run(ctx);
+
+    logger.info({ runId: ctx.runId, share: ctx.step02dShare }, 'completed step02d share test endpoint');
+
+    res.status(201).json({
+      ok: true,
+      runId: ctx.runId,
+      step: 'step02d',
+      sheetId,
+      emails: [email],
+      sendEmail: true,
+      useSmartsheetDefaultEmail,
+      subject,
+      message,
+      ccMe,
+      share: ctx.step02dShare
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+
+function getOptionalRequestBoolean(value, defaultValue) {
+  if (value === undefined || value === null || value === '') {
+    return defaultValue;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string' && ['true', 'false'].includes(value.toLowerCase())) {
+    return value.toLowerCase() === 'true';
+  }
+  const error = new Error('ccMe/ccMyself must be true or false');
+  error.status = 400;
+  throw error;
+}
 function normalizeProjectPayload(body = {}) {
   const projectName = body.projectName || body['Project Name'];
   const projectNumber = body.projectNumber || body['Project Number'];
   const projectType = body.projectType || body['Project Type'] || body.projectVertical || body['Project Vertical'] || '';
   const patersonProject = body.patersonProject || body['patersonProject'] || body['Is this a Paterson Project'] || body['Is this a Patterson Project'] || '';
+  const projectDashboardUrl = body.projectDashboardUrl || body.projectDashboard || body['Project Dashboard'] || '';
 
   if (!projectName || !projectNumber) {
     const receivedKeys = Object.keys(body).join(', ') || 'none';
@@ -45,6 +119,7 @@ function normalizeProjectPayload(body = {}) {
     projectNumber: String(projectNumber).trim(),
     projectType: String(projectType).trim(),
     patersonProject: String(patersonProject).trim(),
+    projectDashboardUrl: String(projectDashboardUrl).trim(),
     masterProjectListSheetId: body.masterProjectListSheetId,
     masterProjectRowId: body.masterProjectRowId,
     runId: body.runId || `${String(projectNumber).trim()}-${crypto.randomUUID()}`
@@ -70,6 +145,7 @@ function buildRunResponse(ctx) {
     projectType: ctx.projectType,
     sheetIds: ctx.sheetIds,
     folderIds: ctx.folderIds,
+    folderUrls: ctx.folderUrls,
     reportIds: ctx.reportIds,
     publishedUrls: ctx.publishedUrls,
     stepStatus: ctx.stepStatus,
@@ -84,11 +160,8 @@ async function runGen009Copy(project) {
   });
 }
 
-async function runThroughReportUpdate(project) {
-  return orchestrator.run(project, {
-    stopAfterStep: 'step03',
-    markChecklistSteps: false
-  });
+async function runFullWorkflow(project) {
+  return orchestrator.run(project);
 }
 
 module.exports = router;

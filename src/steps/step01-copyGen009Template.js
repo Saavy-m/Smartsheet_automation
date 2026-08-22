@@ -49,6 +49,7 @@ async function run(ctx) {
   }
 
   if (copiedSheetId) {
+    await waitForCopiedSheet(smartsheet, copiedSheetId, log);
     ctx.sheetIds.gen009Checklist = copiedSheetId;
     log.info({ sheetId: copiedSheetId, sheetName }, 'copied GEN009 template sheet');
     return ctx;
@@ -105,6 +106,23 @@ function sheetIdFromCopyResult(data) {
     return data.sheet.id;
   }
   return null;
+}
+
+async function waitForCopiedSheet(smartsheet, sheetId, log) {
+  await pollAsyncOperation({
+    log,
+    poll: async () => {
+      try {
+        return await smartsheet.get(`/sheets/${sheetId}`);
+      } catch (error) {
+        if (error.status === 404) {
+          return { status: 404, data: null };
+        }
+        throw error;
+      }
+    },
+    isComplete: (result) => result.status === 200 && result.data
+  });
 }
 
 function getProjectDestinationFolder(workspace) {

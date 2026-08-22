@@ -1,34 +1,172 @@
-// Step 05 writes the manual handoff summary, marks manual checklist rows, and emails the configured owner.
-// run() builds the dashboard/Dynamic View handoff summary, updates checklist rows, sends the notification, and records handoff metadata.
+// Step 05 writes the manual handoff summary, marks manual checklist rows, and records handoff metadata for the final automation report.
+// run() builds the dashboard/Dynamic View handoff summary and updates checklist rows.
 // Helper functions write checklist cells, format email HTML/status/problem text, locate rows/columns, and build Smartsheet cell payloads.
 
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 
+const DYNAMIC_VIEW_SOURCE_URL = 'https://app.smartsheet.com/dynamicview/views/d9e9377f-6857-4475-9853-b6eb27571526/admin/basic';
+const DYNAMIC_VIEW_SHARED_DOMAINS = [
+  'CMR-Design.com',
+  'LiviaDesigngroup.com',
+  'LiviaDesign.com',
+  'SusanStraussDesign.com'
+];
+
 async function run(ctx) {
   const log = childLogger(ctx, 'step05');
-  const summary = [
-    'Manual steps remaining:',
-    `1. Paste the Orders report URL into the dashboard web content widget: ${ctx.publishedUrls.ordersReport || 'URL unavailable'}`,
-    '2. Create, filter, domain-share, and link the Dynamic View using the Smartsheet Admin browser profile.',
-    '',
-    `Signed contract: ${formatSignedStatus(ctx)}`,
-    '',
-    formatProblems(ctx)
-  ].join('\n');
+  const manualTasks = await buildManualTasks(ctx, log);
+  const summary = buildManualSummary(ctx, manualTasks);
 
-  await writeManualSummary(ctx, summary);
-  await markManualRows(ctx);
-  await notifyOwner(ctx, summary);
+  try {
+    await writeManualSummary(ctx, summary);
+  } catch (error) {
+    log.warn({ err: error }, 'manual handoff summary could not be written to checklist; continuing because this is manual work');
+    ctx.manualCheckpointWarnings = ctx.manualCheckpointWarnings || [];
+    ctx.manualCheckpointWarnings.push(`Checklist summary not written: ${error.message}`);
+  }
+
+  try {
+    await markManualRows(ctx);
+  } catch (error) {
+    log.warn({ err: error }, 'manual checklist rows could not be marked; continuing because this is manual work');
+    ctx.manualCheckpointWarnings = ctx.manualCheckpointWarnings || [];
+    ctx.manualCheckpointWarnings.push(`Manual checklist rows not marked: ${error.message}`);
+  }
 
   ctx.manualCheckpoint = {
     owner: config.manualCheckpointOwnerEmail,
-    ordersReportUrl: ctx.publishedUrls.ordersReport,
-    tasks: ['dashboard_orders_report_url_paste', 'dynamic_view_setup']
+    ordersReportUrl: manualTasks[0].sourceUrl,
+    dashboardUrl: manualTasks[0].destinationUrl,
+    tasks: manualTasks,
+    summary,
+    warnings: ctx.manualCheckpointWarnings || []
   };
 
-  log.info({ owner: config.manualCheckpointOwnerEmail }, 'manual checkpoint handoff completed');
+  log.info({ owner: config.manualCheckpointOwnerEmail, warningCount: ctx.manualCheckpointWarnings?.length || 0 }, 'manual checkpoint handoff recorded');
   return ctx;
+}
+
+async function buildManualTasks(ctx, log) {
+  const ordersReportUrl = await resolveOrdersReportUrl(ctx, log);
+  const dashboardUrl = await resolveDashboardUrl(ctx, log);
+
+  return [
+    {
+      id: 'publish-order-report-widget',
+      title: 'Publish the Order Report Widget to the dashboard',
+      sourceLabel: 'Project Order report',
+      sourceUrl: ordersReportUrl,
+      destinationLabel: 'Project Dashboard',
+      destinationUrl: dashboardUrl,
+      details: 'Click Publish in the Order report, copy the provided embed code, then open the destination dashboard and double click the current widget to replace it.'
+    },
+    {
+      id: 'publish-dynamic-view-pencil-widget',
+      title: 'Publish Dynamic View to pencil icon',
+      sourceLabel: 'Dynamic View sharing settings',
+      sourceUrl: DYNAMIC_VIEW_SOURCE_URL,
+      destinationLabel: 'Project Dashboard',
+      destinationUrl: dashboardUrl,
+      sharedDomains: DYNAMIC_VIEW_SHARED_DOMAINS,
+      details: 'Go to the Dynamic View source, open the Sharing tab, add the shared domains, return to View, copy the browser URL, then open the destination dashboard and double click the pencil widget. Paste the copied URL under widget behavior.'
+    }
+  ];
+}
+
+function buildManualSummary(ctx, manualTasks) {
+  const lines = ['Manual steps remaining:'];
+
+  manualTasks.forEach((task, index) => {
+    lines.push(
+      '',
+      `${index + 1}. ${task.title}`,
+      `Source: ${task.sourceUrl || `${task.sourceLabel} URL unavailable`}`,
+      `Destination: ${task.destinationUrl || `${task.destinationLabel} URL unavailable`}`
+    );
+    if (task.sharedDomains?.length) {
+      lines.push(`Shared domains: ${task.sharedDomains.join(', ')}`);
+    }
+    lines.push(`Task details: ${task.details}`);
+  });
+
+  lines.push('', `Signed contract: ${formatSignedStatus(ctx)}`, '', formatProblems(ctx));
+  return lines.join('\n');
+}
+
+async function resolveOrdersReportUrl(ctx, log) {
+  const reportId = ctx.reportIds?.ordersReport || findProjectOrderReportId(ctx);
+  if (!reportId) {
+    return ctx.publishedUrls?.ordersReport || '';
+  }
+
+  try {
+    const report = (await ctx.clients.smartsheet.get(`/reports/${reportId}`)).data;
+    return report.permalink || ctx.publishedUrls?.ordersReport || '';
+  } catch (error) {
+    log.warn({ err: error, reportId }, 'could not resolve Project Order report URL for manual checkpoint');
+    return ctx.publishedUrls?.ordersReport || '';
+  }
+}
+
+function findProjectOrderReportId(ctx) {
+  const match = (ctx.reportIds?.updatedReports || []).find((report) => {
+    const name = `${report.afterName || ''} ${report.beforeName || ''}`.toLowerCase();
+    return name.includes('project order') || name.includes('orders report') || name.includes('order report');
+  });
+  return match?.afterId || match?.beforeId || '';
+}
+
+async function resolveDashboardUrl(ctx, log) {
+  if (ctx.projectDashboardUrl) {
+    return ctx.projectDashboardUrl;
+  }
+
+  const folderId = ctx.folderIds?.projectToolkit || ctx.folderIds?.projectFolder;
+  if (!folderId) {
+    return '';
+  }
+
+  try {
+    const folder = (await ctx.clients.smartsheet.get(`/folders/${folderId}`)).data;
+    const dashboard = await findProjectDashboard(ctx.clients.smartsheet, folder);
+    if (!dashboard) {
+      return '';
+    }
+    const dashboardUrl = dashboard.permalink || await resolveDashboardPermalink(ctx.clients.smartsheet, dashboard.id, log);
+    ctx.projectDashboardUrl = dashboardUrl;
+    return dashboardUrl;
+  } catch (error) {
+    log.warn({ err: error, folderId }, 'could not resolve Project Dashboard URL for manual checkpoint');
+    return '';
+  }
+}
+
+async function findProjectDashboard(smartsheet, container) {
+  const match = (container.sights || []).find((item) => String(item.name || '').toLowerCase().includes('project dashboard'));
+  if (match) {
+    return match;
+  }
+
+  for (const folder of container.folders || []) {
+    const folderDetails = folder.sights ? folder : (await smartsheet.get(`/folders/${folder.id}`)).data;
+    const nested = await findProjectDashboard(smartsheet, folderDetails);
+    if (nested) {
+      return nested;
+    }
+  }
+
+  return null;
+}
+
+async function resolveDashboardPermalink(smartsheet, dashboardId, log) {
+  try {
+    const dashboard = (await smartsheet.get(`/sights/${dashboardId}`)).data;
+    return dashboard.permalink || '';
+  } catch (error) {
+    log.warn({ err: error, dashboardId }, 'could not resolve Project Dashboard permalink');
+    return dashboardId ? `https://app.smartsheet.com/dashboards/${encodeURIComponent(dashboardId)}` : '';
+  }
 }
 
 async function writeManualSummary(ctx, summary) {
@@ -72,32 +210,12 @@ async function markManualRows(ctx) {
   })));
 }
 
-async function notifyOwner(ctx, summary) {
-  const graph = ctx.clients.graph;
-  const html = `<p>Project spin-up automation has completed for <strong>${escapeHtml(ctx.projectNumber)} ${escapeHtml(ctx.projectName)}</strong>.</p><pre>${escapeHtml(summary)}</pre>`;
-  await graph.sendMail({
-    fromUserId: config.graph.mailboxUserId,
-    to: config.manualCheckpointOwnerEmail,
-    subject: `Manual Smartsheet steps remaining: ${ctx.projectNumber}`,
-    html
-  });
-}
-
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
-
 function formatSignedStatus(ctx) {
   if (ctx.contract?.needsManualReview) {
     return `Needs manual review (${ctx.contract.reason})`;
   }
   if (ctx.contract?.signed === true) {
-    return 'Yes';
+    return ctx.contract.signedLine || 'Yes';
   }
   if (ctx.contract?.signed === false) {
     return 'No';
@@ -145,6 +263,9 @@ function findRowByPrimaryValue(sheet, value) {
 
 function findRowByColumnValue(sheet, columnTitle, value) {
   const column = columnsByTitle(sheet)[columnTitle];
+  if (!column) {
+    return null;
+  }
   const expected = String(value).trim().toLowerCase();
   return (sheet.rows || []).find((row) => String(cellValue(row, column.id) || '').trim().toLowerCase() === expected) || null;
 }

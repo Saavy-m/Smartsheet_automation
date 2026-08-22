@@ -14,6 +14,7 @@ Production Node.js service for automating the Livia Design Group / CMR Design Ne
 - Publishes the Orders report and writes its URL to the checklist.
 - Copies, polls, and renames the two OneDrive template folder sets into their configured destination folders.
 - Writes and sends a manual handoff email with dashboard/Dynamic View tasks, contract signed status, and any non-fatal automation problems.
+- Sends a final automation report email from `MS_GRAPH_MAILBOX_USER_ID` to `MANUAL_CHECKPOINT_OWNER_EMAIL` with source/destination URLs and failed-step recovery notes.
 
 ## Deliberately Out Of Scope
 
@@ -39,6 +40,7 @@ src/
 		step04b-createOneDriveFolders.js
 		step05-manualCheckpointHandoff.js
 		step06-markChecklistDone.js
+		step07-sendAutomationReport.js
 	utils/
 		logger.js
 		retry.js
@@ -69,13 +71,17 @@ npm install
 npm run dev
 ```
 
-5. Register the Graph webhook subscription:
+On startup, the service registers or renews the Microsoft Graph mailbox webhook subscription using `WEBHOOK_CALLBACK_URL`. The subscription is set with a three-day expiration and renewed every two days while the server is running. The callback URL must be public HTTPS for Microsoft Graph subscription validation.
+
+Set `AUTOMATION_START_DELAY_SECONDS=300` to wait five minutes after a forwarded alert email is received before the project spin-up run starts.
+
+If Smartsheet sends the email before the toolkit resources finish appearing, the automation waits one minute and retries missing project-folder, Project Plan, and update-filter report lookups up to two times.
+
+You can still force registration manually if needed:
 
 ```bash
 curl -X POST http://localhost:3000/webhooks/graph/register
 ```
-
-The callback URL must be public HTTPS for Microsoft Graph subscription validation.
 
 ## Environment-Controlled Locations
 
@@ -107,7 +113,7 @@ DRY_RUN=true npm run dev
 
 ## JSON Project Spin-Up API
 
-Until the mailbox webhook is connected, post the project details as JSON. This endpoint currently runs step01 through step03: it copies `SMARTSHEET_GEN009_TEMPLATE_ID` into `SMARTSHEET_PROJECT_ROOT_FOLDER_PATH`, writes project info to the copied GEN009 checklist, hides the Patterson column when needed, finds and trims/logs the Project Plan sheet according to `DRY_RUN`, then updates and optionally renames the five report definitions found under the project toolkit folder:
+Until the mailbox webhook is connected, post the project details as JSON. This endpoint runs the full workflow: it copies `SMARTSHEET_GEN009_TEMPLATE_ID` into `SMARTSHEET_PROJECT_ROOT_FOLDER_PATH`, writes project info to the copied GEN009 checklist, hides the Patterson column when needed, finds and trims/logs the Project Plan sheet according to `DRY_RUN`, updates and optionally renames the five report definitions found under the project toolkit folder, publishes the Orders report, copies the OneDrive template folders into their configured destinations, writes the manual handoff, then sends the final automation report email:
 
 ```bash
 curl -X POST http://localhost:3000/api/project-spin-up \
@@ -123,9 +129,9 @@ curl -X POST http://localhost:3000/api/project-spin-up/test-step01 \
 	-d '{"projectName":"Example Project","projectNumber":"12345","projectType":"Commercial"}'
 ```
 
-Both endpoints also accept email-style JSON keys, for example `{"Project Name":"Example Project","Project Number":"12345","Project Type":"Commercial"}`. The main endpoint stops after step03, so it skips OneDrive and email steps. The copy-only test endpoint stops before checklist writing, sharing, Project Plan trimming, reports, OneDrive, Master Project List reads, or email steps.
+Both endpoints also accept email-style JSON keys, for example `{"Project Name":"Example Project","Project Number":"12345","Project Type":"Commercial","Project Dashboard":"https://app.smartsheet.com/dashboards/example"}`. The copy-only test endpoint stops before checklist writing, sharing, Project Plan trimming, reports, OneDrive, Master Project List reads, or email steps.
 
-API responses include `automationReport`, which summarizes how many steps passed, failed, were skipped, need manual review, or ran in dry-run mode. If a step fails, the orchestrator records that step as failed and continues through the configured stop point; the response returns `ok: false` and `status: "failed"` when any step failed.
+API responses include `automationReport`, which summarizes how many steps passed, failed, were skipped, need manual review, or ran in dry-run mode. OneDrive folder IDs are returned in `folderIds.oneDrive`, and folder web URLs are returned in `folderUrls.oneDrive` when Graph provides them. If a step fails, the orchestrator records that step as failed and continues through the configured stop point; the response returns `ok: false` and `status: "failed"` when any step failed.
 
 In Postman, choose Body -> raw -> JSON. The server also accepts raw JSON sent as `text/plain` or with no content type for local testing.
 

@@ -17,7 +17,6 @@ const REQUIRED = [
   'ONEDRIVE_CAD_DESTINATION_PATH',
   'ONEDRIVE_CLIENT_TEMPLATE_PATH',
   'ONEDRIVE_CLIENT_DESTINATION_PATH',
-  'ONEDRIVE_CLIENT_PRODUCTION_PATH',
   'ORDERS_REPORT_PUBLISH_ACCESS_LEVEL',
   'SIGNED_KEYWORD',
   'UNSIGNED_KEYWORD',
@@ -87,6 +86,26 @@ function getOptionalString(name, defaultValue = '') {
   return value;
 }
 
+function getOptionalNumber(name, defaultValue = 0) {
+  const value = process.env[name];
+  if (value === undefined || value === '') {
+    return defaultValue;
+  }
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    throw new Error(`${name} must be a non-negative number`);
+  }
+  return number;
+}
+
+function getOptionalEnv(name, fallbackName) {
+  const value = process.env[name];
+  if (value !== undefined && value !== '') {
+    return value;
+  }
+  return getEnv(fallbackName);
+}
+
 function validate() {
   REQUIRED.forEach(getEnv);
 }
@@ -96,6 +115,7 @@ validate();
 module.exports = {
   port: Number(getEnv('PORT')),
   dryRun: getBoolean('DRY_RUN'),
+  automationStartDelayMs: getOptionalNumber('AUTOMATION_START_DELAY_SECONDS') * 1000,
   smartsheet: {
     token: getEnv('SMARTSHEET_API_TOKEN'),
     changeAgent: process.env.SMARTSHEET_CHANGE_AGENT || 'cmr-project-spin-up',
@@ -119,6 +139,12 @@ module.exports = {
     tenantId: getEnv('MS_GRAPH_TENANT_ID'),
     clientId: getEnv('MS_GRAPH_CLIENT_ID'),
     clientSecret: getEnv('MS_GRAPH_CLIENT_SECRET'),
+    mailTenantId: getOptionalEnv('MS_GRAPH_MAIL_TENANT_ID', 'MS_GRAPH_TENANT_ID'),
+    mailClientId: getOptionalEnv('MS_GRAPH_MAIL_CLIENT_ID', 'MS_GRAPH_CLIENT_ID'),
+    mailClientSecret: getOptionalEnv('MS_GRAPH_MAIL_CLIENT_SECRET', 'MS_GRAPH_CLIENT_SECRET'),
+    oneDriveTenantId: getOptionalEnv('MS_GRAPH_ONEDRIVE_TENANT_ID', 'MS_GRAPH_TENANT_ID'),
+    oneDriveClientId: getOptionalEnv('MS_GRAPH_ONEDRIVE_CLIENT_ID', 'MS_GRAPH_CLIENT_ID'),
+    oneDriveClientSecret: getOptionalEnv('MS_GRAPH_ONEDRIVE_CLIENT_SECRET', 'MS_GRAPH_CLIENT_SECRET'),
     mailboxUserId: getEnv('MS_GRAPH_MAILBOX_USER_ID'),
     oneDriveUserId: getEnv('MS_GRAPH_ONEDRIVE_USER_ID'),
     callbackUrl: getEnv('WEBHOOK_CALLBACK_URL'),
@@ -128,8 +154,7 @@ module.exports = {
     cadTemplatePath: getEnv('ONEDRIVE_CAD_TEMPLATE_PATH'),
     cadDestinationPath: getEnv('ONEDRIVE_CAD_DESTINATION_PATH'),
     clientTemplatePath: getEnv('ONEDRIVE_CLIENT_TEMPLATE_PATH'),
-    clientDestinationPath: getEnv('ONEDRIVE_CLIENT_DESTINATION_PATH'),
-    clientProductionPath: getEnv('ONEDRIVE_CLIENT_PRODUCTION_PATH')
+    clientDestinationPath: getEnv('ONEDRIVE_CLIENT_DESTINATION_PATH')
   },
   columns: {
     checklistProjectName: getEnv('CHECKLIST_PROJECT_NAME_COLUMN'),

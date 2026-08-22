@@ -87,6 +87,14 @@ class GraphClient {
     return this.get(`/users/${encodeURIComponent(mailboxUserId)}/messages/${encodeURIComponent(messageId)}`);
   }
 
+  async listSubscriptions() {
+    return this.get('/subscriptions');
+  }
+
+  async updateSubscription(subscriptionId, { expirationDateTime }) {
+    return this.patch(`/subscriptions/${encodeURIComponent(subscriptionId)}`, { expirationDateTime });
+  }
+
   async createSubscription({ mailboxUserId, callbackUrl, clientState, expirationDateTime }) {
     return this.post('/subscriptions', {
       changeType: 'created',
@@ -114,11 +122,12 @@ class GraphClient {
   }
 
   async sendMail({ fromUserId, to, subject, html }) {
+    const recipients = normalizeRecipients(to);
     return this.post(`/users/${encodeURIComponent(fromUserId)}/sendMail`, {
       message: {
         subject,
         body: { contentType: 'HTML', content: html },
-        toRecipients: [{ emailAddress: { address: to } }]
+        toRecipients: recipients.map((address) => ({ emailAddress: { address } }))
       },
       saveToSentItems: true
     });
@@ -141,8 +150,40 @@ function encodeGraphPath(path) {
   return path.split('/').map(encodeURIComponent).join('/');
 }
 
+function normalizeRecipients(value) {
+  const recipients = (Array.isArray(value) ? value : String(value || '').split(','))
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (recipients.length === 0) {
+    throw new Error('sendMail requires at least one recipient');
+  }
+
+  return recipients;
+}
+
 function createGraphClient(options) {
   return new GraphClient(options);
 }
 
-module.exports = { GraphClient, createGraphClient };
+function createMailboxGraphClient(options = {}) {
+  return new GraphClient({
+    tenantId: config.graph.mailTenantId,
+    clientId: config.graph.mailClientId,
+    clientSecret: config.graph.mailClientSecret,
+    oneDriveUserId: config.graph.oneDriveUserId,
+    ...options
+  });
+}
+
+function createOneDriveGraphClient(options = {}) {
+  return new GraphClient({
+    tenantId: config.graph.oneDriveTenantId,
+    clientId: config.graph.oneDriveClientId,
+    clientSecret: config.graph.oneDriveClientSecret,
+    oneDriveUserId: config.graph.oneDriveUserId,
+    ...options
+  });
+}
+
+module.exports = { GraphClient, createGraphClient, createMailboxGraphClient, createOneDriveGraphClient };

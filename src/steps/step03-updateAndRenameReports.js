@@ -4,12 +4,16 @@
 
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
+const { retryResourceNotReady } = require('../utils/retryResourceNotReady');
 
 async function run(ctx) {
   const log = childLogger(ctx, 'step03');
   const smartsheet = ctx.clients.smartsheet;
   const projectRootFolder = await loadProjectRootFolder(smartsheet, ctx);
-  const reportMatches = await findConfiguredReports(smartsheet, projectRootFolder, ctx);
+  const reportMatches = await retryResourceNotReady(
+    () => findRequiredConfiguredReports(smartsheet, projectRootFolder, ctx),
+    { log, resourceName: 'update-filter reports' }
+  );
   const filterFailures = [];
 
   ctx.reportIds.updatedReports = [];
@@ -41,10 +45,6 @@ async function run(ctx) {
     log.info({ reportId, reportName, updatedName, filterUpdated: updatedReport.filterUpdated }, 'processed report while preserving report ID');
   }
 
-  if (!reportMatches.length) {
-    throw new Error(`No update-filter reports found under project folder. Expected names containing ${config.smartsheet.reportNameContains || '{{update filter #}}'}`);
-  }
-
   if (filterFailures.length) {
     throw new Error(`Report renames completed, but ${filterFailures.length} filter update(s) failed: ${filterFailures.map((failure) => `${failure.reportName}: ${failure.message}`).join('; ')}`);
   }
@@ -65,13 +65,21 @@ async function findConfiguredReports(smartsheet, projectRootFolder, ctx) {
   return findReportsByNameContains(smartsheet, projectRootFolder, config.smartsheet.reportNameContains || '{{update filter #}}', ctx.projectNumber);
 }
 
+async function findRequiredConfiguredReports(smartsheet, projectRootFolder, ctx) {
+  const reportMatches = await findConfiguredReports(smartsheet, projectRootFolder, ctx);
+  if (!reportMatches.length) {
+    throw new Error(`No update-filter reports found under project folder. Expected names containing ${config.smartsheet.reportNameContains || '{{update filter #}}'}`);
+  }
+  return reportMatches;
+}
+
 async function findReportsByNameContains(smartsheet, container, token, projectNumber, visitedFolderIds = new Set()) {
   const expected = normalizeReportSearchText(token);
   const renamedToken = normalizeReportSearchText(projectNumber);
   const matches = (container.reports || [])
     .filter((report) => {
       const name = normalizeReportSearchText(report.name);
-      return name.includes(expected) || name.includes(renamedToken);
+      return reportNameMatchesSearch(name, expected, renamedToken);
     })
     .map((report) => ({ ...report, parentFolderId: container.id }));
 
@@ -97,6 +105,12 @@ function normalizeReportSearchText(value) {
     .trim();
 }
 
+function reportNameMatchesSearch(normalizedName, expected, renamedToken) {
+  return normalizedName.includes(expected)
+    || normalizedName.includes(renamedToken)
+    || /\bupdate\s+filters?\b/.test(normalizedName);
+}
+
 async function renameReport({ smartsheet, log, reportId, reportName, ctx }) {
   const newName = buildReportName(reportName, ctx);
   if (newName === reportName) {
@@ -113,7 +127,7 @@ async function renameReport({ smartsheet, log, reportId, reportName, ctx }) {
 }
 
 function buildReportName(beforeName, ctx) {
-  return beforeName.replace(/\{\{\s*update\s+filter\s*#?\s*\}\}/gi, ctx.projectNumber).slice(0, 50);
+  return beforeName.replace(/\{+\s*update\s+filters?\s*#?\s*\}*|\bupdate\s+filters?(?:\s*#)?(?=\s|$|\})/gi, ctx.projectNumber).slice(0, 50);
 }
 
 function stripTemplateToken(name) {
@@ -208,4 +222,4 @@ function validateReportDefinitionForUpdate(reportName, definition) {
   }
 }
 
-module.exports = { buildReportName, replaceAccountNumber, run };
+module.exports = { buildReportName, replaceAccountNumber, reportNameMatchesSearch, run };
