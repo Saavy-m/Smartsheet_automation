@@ -121,14 +121,21 @@ class GraphClient {
     return this.patch(`/users/${encodeURIComponent(this.oneDriveUserId)}/drive/items/${encodeURIComponent(itemId)}`, body);
   }
 
-  async sendMail({ fromUserId, to, subject, html }) {
+  async sendMail({ fromUserId, to, subject, html, attachments = [] }) {
     const recipients = normalizeRecipients(to);
+    const normalizedAttachments = normalizeAttachments(attachments);
+    const message = {
+      subject,
+      body: { contentType: 'HTML', content: html },
+      toRecipients: recipients.map((address) => ({ emailAddress: { address } }))
+    };
+
+    if (normalizedAttachments.length) {
+      message.attachments = normalizedAttachments;
+    }
+
     return this.post(`/users/${encodeURIComponent(fromUserId)}/sendMail`, {
-      message: {
-        subject,
-        body: { contentType: 'HTML', content: html },
-        toRecipients: recipients.map((address) => ({ emailAddress: { address } }))
-      },
+      message,
       saveToSentItems: true
     });
   }
@@ -160,6 +167,17 @@ function normalizeRecipients(value) {
   }
 
   return recipients;
+}
+
+function normalizeAttachments(value) {
+  return (Array.isArray(value) ? value : [])
+    .filter((attachment) => attachment?.name && attachment?.contentBytes)
+    .map((attachment) => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: attachment.name,
+      contentType: attachment.contentType || 'application/octet-stream',
+      contentBytes: attachment.contentBytes
+    }));
 }
 
 function createGraphClient(options) {

@@ -48,6 +48,7 @@ async function run(ctx) {
     ctx.contract = contract;
     log.info({ signed, attachmentId: attachment.id }, 'verified signed contract PDF first line');
     if (!signed) {
+      addContractReviewAttachment(ctx, attachment, buffer);
       await markNeedsReview(ctx, 'Contract attachment was found but did not appear signed', contract);
     }
     return ctx;
@@ -157,6 +158,15 @@ function checklistStatusValue(column, value) {
     return 'N/A';
   }
   return value;
+}
+
+function addContractReviewAttachment(ctx, attachment, buffer) {
+  ctx.emailAttachments = ctx.emailAttachments || [];
+  ctx.emailAttachments.push({
+    name: attachment.name || `contract-${ctx.projectNumber || 'review'}.pdf`,
+    contentType: 'application/pdf',
+    contentBytes: buffer.toString('base64')
+  });
 }
 
 async function markNeedsReview(ctx, reason, contract = {}) {

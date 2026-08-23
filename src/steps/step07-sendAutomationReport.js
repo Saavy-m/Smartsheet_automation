@@ -4,11 +4,14 @@ const config = require('../../config');
 const { buildAutomationReport } = require('../utils/automationReport');
 const { childLogger } = require('../utils/logger');
 
+const MAX_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+
 async function run(ctx) {
   const log = childLogger(ctx, 'step07');
   const report = buildAutomationReport(ctx);
   const resources = await collectResources(ctx, log);
   const failureRecap = buildFailureRecap(ctx);
+  const attachments = prepareEmailAttachments(ctx, log);
   const html = buildEmailHtml({ ctx, report, resources, failureRecap });
 
   const mailGraph = ctx.clients.mailGraph || ctx.clients.graph;
@@ -16,8 +19,9 @@ async function run(ctx) {
   await mailGraph.sendMail({
     fromUserId: config.graph.mailboxUserId,
     to: config.manualCheckpointOwnerEmail,
-    subject: `Automation Complete: Smartsheet Automation Report - ${ctx.projectName} - ${ctx.projectNumber}.`,
-    html
+    subject: `Project Spin Up Automation Report for ${ctx.projectName} - ${failureRecap.length} ${failureRecap.length === 1 ? 'error' : 'errors'}`,
+    html,
+    attachments
   });
 
   ctx.automationReportEmail = {
@@ -25,11 +29,35 @@ async function run(ctx) {
     to: config.manualCheckpointOwnerEmail,
     sentAt: new Date().toISOString(),
     resourceCount: resources.length,
-    failedStepCount: failureRecap.length
+    failedStepCount: failureRecap.length,
+    attachmentCount: attachments.length
   };
 
   log.info({ to: config.manualCheckpointOwnerEmail, failedStepCount: failureRecap.length }, 'automation report email sent');
   return ctx;
+}
+
+function prepareEmailAttachments(ctx, log) {
+  const attachments = [];
+
+  for (const attachment of ctx.emailAttachments || []) {
+    const byteLength = Buffer.byteLength(attachment.contentBytes || '', 'base64');
+    if (byteLength > MAX_INLINE_ATTACHMENT_BYTES) {
+      const warning = `${attachment.name} was not attached because it is larger than Microsoft Graph inline email attachment limits.`;
+      ctx.manualCheckpoint = ctx.manualCheckpoint || {};
+      ctx.manualCheckpoint.warnings = ctx.manualCheckpoint.warnings || [];
+      ctx.manualCheckpoint.warnings.push(warning);
+      log.warn({ attachmentName: attachment.name, byteLength }, 'skipping oversized email attachment');
+      continue;
+    }
+
+    attachments.push(attachment);
+    if (ctx.contract?.attachmentName === attachment.name) {
+      ctx.contract.emailAttachmentIncluded = true;
+    }
+  }
+
+  return attachments;
 }
 
 async function collectResources(ctx, log) {
@@ -271,7 +299,8 @@ function buildContractSignedSummary(report) {
   }
 
   if (contract.attachmentName) {
-    label = `${label} (${contract.attachmentName})`;
+    const attachmentNote = contract.emailAttachmentIncluded ? ' - see attachments' : '';
+    label = `${label} (${contract.attachmentName}${attachmentNote})`;
   }
 
   return {
