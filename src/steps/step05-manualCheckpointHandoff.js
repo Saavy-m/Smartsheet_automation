@@ -6,6 +6,8 @@ const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 
 const DYNAMIC_VIEW_SOURCE_URL = 'https://app.smartsheet.com/dynamicview/views/d9e9377f-6857-4475-9853-b6eb27571526/admin/basic';
+const ORDERS_SOURCE_SHEET_ID = '4554883996116868';
+const ORDERS_SOURCE_SHEET_URL = 'https://app.smartsheet.com/sheets/7GvwrmhjhWwPr39fjVrQ6CJpm6R8x2j54q3CG3Q1';
 const DYNAMIC_VIEW_SHARED_DOMAINS = [
   'CMR-Design.com',
   'LiviaDesigngroup.com',
@@ -20,8 +22,8 @@ async function run(ctx) {
 
   ctx.manualCheckpoint = {
     owner: config.manualCheckpointOwnerEmail,
-    ordersReportUrl: manualTasks[0].sourceUrl,
-    dashboardUrl: manualTasks[0].destinationUrl,
+    ordersReportUrl: manualTasks.find((task) => task.id === 'publish-order-report-widget')?.sourceUrl || '',
+    dashboardUrl: manualTasks.find((task) => task.destinationLabel === 'Project Dashboard')?.destinationUrl || '',
     tasks: manualTasks,
     summary,
     warnings: []
@@ -36,6 +38,13 @@ async function buildManualTasks(ctx, log) {
   const dashboardUrl = await resolveDashboardUrl(ctx, log);
 
   return [
+    {
+      id: 'add-orders-source-sheet-filter',
+      title: 'Add Project Number filter to the Orders source sheet',
+      sourceLabel: 'Orders source sheet',
+      sourceUrl: ORDERS_SOURCE_SHEET_URL,
+      details: `Open the Orders source sheet (Sheet ID: ${ORDERS_SOURCE_SHEET_ID}), then create a filter where Project Number equals ${ctx.projectNumber || '{project number}'}.`
+    },
     {
       id: 'publish-order-report-widget',
       title: 'Publish the Order Report Widget to the dashboard',
@@ -65,9 +74,11 @@ function buildManualSummary(ctx, manualTasks) {
     lines.push(
       '',
       `${index + 1}. ${task.title}`,
-      `Source: ${task.sourceUrl || `${task.sourceLabel} URL unavailable`}`,
-      `Destination: ${task.destinationUrl || `${task.destinationLabel} URL unavailable`}`
+      `Source: ${task.sourceUrl || `${task.sourceLabel} URL unavailable`}`
     );
+    if (task.destinationLabel || task.destinationUrl) {
+      lines.push(`Destination: ${task.destinationUrl || `${task.destinationLabel} URL unavailable`}`);
+    }
     if (task.sharedDomains?.length) {
       lines.push(`Shared domains: ${task.sharedDomains.join(', ')}`);
     }

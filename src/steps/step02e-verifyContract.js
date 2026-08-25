@@ -44,7 +44,7 @@ async function run(ctx) {
       firstLine
     };
 
-    await writeSignedStatus(ctx, signed ? 'Yes' : 'No');
+    await writeSignedStatus(ctx, signed ? 'Yes' : '');
     ctx.contract = contract;
     log.info({ signed, attachmentId: attachment.id }, 'verified signed contract PDF first line');
     if (!signed) {
@@ -148,14 +148,14 @@ async function writeSignedStatus(ctx, value) {
 
 function checklistStatusValue(column, value) {
   const options = column.options || [];
+  if (value === '') {
+    return '';
+  }
   if (options.includes(value)) {
     return value;
   }
   if (String(value).toLowerCase() === 'yes' && options.includes('Done')) {
     return 'Done';
-  }
-  if (String(value).toLowerCase() === 'no' && options.includes('N/A')) {
-    return 'N/A';
   }
   return value;
 }

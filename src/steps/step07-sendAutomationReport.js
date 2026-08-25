@@ -229,7 +229,7 @@ function buildEmailHtml({ ctx, report, resources, failureRecap }) {
               <tr>
                 <td style="padding:28px 32px;">
                   <h2 style="margin:0 0 14px 0;font-size:20px;line-height:1.3;color:#12323f;">Project Summary</h2>
-                  ${buildProjectSummaryTable(report)}
+                  ${buildProjectSummaryTable(report, ctx)}
                 </td>
               </tr>
               <tr>
@@ -240,7 +240,7 @@ function buildEmailHtml({ ctx, report, resources, failureRecap }) {
               </tr>
               <tr>
                 <td style="padding:0 32px 28px 32px;">
-                  <h2 style="margin:0 0 14px 0;font-size:20px;line-height:1.3;color:#12323f;">Failed steps and recovery notes</h2>
+                  <h2 style="margin:0 0 14px 0;font-size:20px;line-height:1.3;color:#12323f;">Items Needing Review</h2>
                   ${buildFailureSection(failureRecap)}
                 </td>
               </tr>
@@ -261,11 +261,13 @@ function buildEmailHtml({ ctx, report, resources, failureRecap }) {
   `;
 }
 
-function buildProjectSummaryTable(report) {
+function buildProjectSummaryTable(report, ctx) {
+  const smartsheetUrls = ctx.resourceUrls?.smartsheet || {};
   const rows = [
     ['Project Name', report.projectName],
     ['Project Number', report.projectNumber],
     ['Project Type', report.projectType || 'Not recorded'],
+    ['GEN009 Checklist', { label: smartsheetUrls.gen009Checklist ? 'Open GEN009 checklist' : 'Checklist URL unavailable', url: smartsheetUrls.gen009Checklist, linkLabel: 'Open checklist' }],
     ['Contract Signed', buildContractSignedSummary(report)],
     ['Run ID', report.runId],
     ['Completed Steps', report.passedSteps],
@@ -290,22 +292,42 @@ function buildProjectSummaryTable(report) {
 function buildContractSignedSummary(report) {
   const contract = report.contract || {};
   let label = 'Not checked';
+  let highlight = false;
   if (contract.signed === true) {
     label = 'Yes';
   } else if (contract.signed === false) {
-    label = 'No - unsigned PDF';
+    label = buildUnsignedContractSummary(contract);
+    highlight = true;
+  } else if (isMissingContractAttachment(contract)) {
+    label = 'NO - contract verification could not find a Letter of Agreement file. No contract file was attached for review.';
+    highlight = true;
   } else if (contract.needsManualReview) {
     label = 'Needs manual review';
   }
 
-  if (contract.attachmentName) {
+  if (contract.attachmentName && contract.signed !== false) {
     const attachmentNote = contract.emailAttachmentIncluded ? ' - see attachments' : '';
     label = `${label} (${contract.attachmentName}${attachmentNote})`;
   }
 
   return {
-    label
+    label,
+    highlight
   };
+}
+
+function buildUnsignedContractSummary(contract) {
+  if (contract.emailAttachmentIncluded) {
+    return `NO - contract verification failed. ${contract.attachmentName || 'The contract file'} is attached for review.`;
+  }
+  if (contract.attachmentName) {
+    return `NO - contract verification failed. ${contract.attachmentName} could not be attached to this report; review it from the project records.`;
+  }
+  return 'NO - contract verification failed. No contract file was attached for review.';
+}
+
+function isMissingContractAttachment(contract) {
+  return contract.needsManualReview && /no .*attachment|attachment .*not found|no .*file/i.test(contract.reason || '');
 }
 
 function renderSummaryValue(value) {
@@ -313,6 +335,9 @@ function renderSummaryValue(value) {
     return escapeHtml(value);
   }
   const text = escapeHtml(value.label || '');
+  if (value.highlight) {
+    return `<span style="display:inline-block;padding:5px 8px;background:#fff2b8;border:1px solid #d59b28;color:#5a2f00;font-weight:700;">${text}</span>`;
+  }
   if (!value.url) {
     return text;
   }
@@ -341,6 +366,9 @@ function buildManualTaskCard(task, index) {
   const sharedDomains = task.sharedDomains?.length
     ? `<tr><th align="left" style="padding:8px 10px;color:#315163;vertical-align:top;">Shared Domains</th><td style="padding:8px 10px;color:#23313d;">${task.sharedDomains.map(escapeHtml).join('<br>')}</td></tr>`
     : '';
+  const destinationRow = task.destinationLabel || task.destinationUrl
+    ? `<tr><th align="left" style="padding:8px 10px;color:#315163;vertical-align:top;">Destination</th><td style="padding:8px 10px;color:#23313d;">${buildNamedLink(task.destinationLabel, task.destinationUrl)}</td></tr>`
+    : '';
 
   return `
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 14px 0;border-collapse:collapse;border:1px solid #d8e1e7;background:#fbfdfe;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.5;">
@@ -354,7 +382,7 @@ function buildManualTaskCard(task, index) {
         <td style="padding:8px 6px 12px 6px;">
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;">
             <tr><th align="left" style="width:26%;padding:8px 10px;color:#315163;vertical-align:top;">Source</th><td style="padding:8px 10px;color:#23313d;">${buildNamedLink(task.sourceLabel, task.sourceUrl)}</td></tr>
-            <tr><th align="left" style="padding:8px 10px;color:#315163;vertical-align:top;">Destination</th><td style="padding:8px 10px;color:#23313d;">${buildNamedLink(task.destinationLabel, task.destinationUrl)}</td></tr>
+            ${destinationRow}
             ${sharedDomains}
             <tr><th align="left" style="padding:8px 10px;color:#315163;vertical-align:top;">Task Details</th><td style="padding:8px 10px;color:#23313d;">${escapeHtml(task.details)}</td></tr>
           </table>
@@ -389,19 +417,26 @@ function buildResourcesTable(resources) {
 function buildFailureSection(failureRecap) {
   const contactHtml = buildRecoveryContactFooter();
   if (!failureRecap.length) {
-    return `<p style="margin:0 0 12px 0;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.5;color:#23313d;">No failed steps were recorded.</p>${contactHtml}`;
+    return `<p style="margin:0 0 12px 0;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.5;color:#23313d;">Nothing in the automation report needs follow-up review.</p>${contactHtml}`;
   }
 
   return `${failureRecap.map((failure) => `
     <div style="margin:0 0 12px 0;padding:12px 14px;background:#ffffff;border:1px solid #d8e1e7;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.5;color:#23313d;">
-    <p style="margin:0 0 8px 0;"><strong>${escapeHtml(failure.stepRef)}:</strong> ${escapeHtml(failure.status)}</p>
-    <p style="margin:0 0 8px 0;"><strong>Error:</strong> ${escapeHtml(failure.message)}</p>
-    <p style="margin:0;"><strong>Fix guidance:</strong> ${linkifyText(failure.guidance)}</p>
+    <p style="margin:0 0 8px 0;"><strong>Automation area:</strong> ${escapeHtml(failure.stepRef)} (${formatFailureStatus(failure.status)})</p>
+    <p style="margin:0 0 8px 0;"><strong>What happened:</strong> ${escapeHtml(failure.message)}</p>
+    <p style="margin:0;"><strong>What to do next:</strong> ${linkifyText(failure.guidance)}</p>
     ${failure.problems.map((problem) => `
-      <p style="margin:8px 0 0 0;"><strong>Relevant info:</strong> ${escapeHtml(problem.message || '')}${problem.guidance ? `<br><strong>Recorded guidance:</strong> ${linkifyText(problem.guidance)}` : ''}</p>
+      <p style="margin:8px 0 0 0;"><strong>Helpful detail:</strong> ${escapeHtml(problem.message || '')}${problem.guidance ? `<br><strong>Additional note:</strong> ${linkifyText(problem.guidance)}` : ''}</p>
     `).join('')}
     </div>
   `).join('')}${contactHtml}`;
+}
+
+function formatFailureStatus(status) {
+  if (status === 'needs_manual_review') {
+    return 'needs review';
+  }
+  return String(status || 'recorded').replace(/_/g, ' ');
 }
 
 function buildRecoveryContactFooter() {
