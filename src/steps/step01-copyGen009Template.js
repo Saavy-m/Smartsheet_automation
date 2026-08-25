@@ -6,19 +6,27 @@ const config = require('../../config');
 const { pollAsyncOperation } = require('../utils/pollAsyncOperation');
 const { childLogger } = require('../utils/logger');
 
+const SMARTSHEET_COPY_NAME_MAX_LENGTH = 50;
+
 async function run(ctx) {
   const log = childLogger(ctx, 'step01');
   validateStep01Config();
   const smartsheet = ctx.clients.smartsheet;
-  const sheetName = renderTemplate(config.smartsheet.gen009SheetNameTemplate, ctx);
+  const requestedSheetName = renderTemplate(config.smartsheet.gen009SheetNameTemplate, ctx);
+  const sheetName = truncateSmartsheetCopyName(requestedSheetName);
 
   const workspace = (await smartsheet.get(`/workspaces/${config.smartsheet.zActiveWorkspaceId}`)).data;
   const folder = getProjectDestinationFolder(workspace);
 
   ctx.folderIds.projectRoot = folder.id;
   ctx.folderIds.projectToolkit = folder.id;
+  ctx.sheetNames = { ...(ctx.sheetNames || {}), gen009Checklist: sheetName };
   const folderDetails = (await smartsheet.get(`/folders/${folder.id}`)).data;
   const existing = findSheetByName(folderDetails, sheetName);
+
+  if (sheetName !== requestedSheetName) {
+    log.warn({ requestedSheetName, sheetName, maxLength: SMARTSHEET_COPY_NAME_MAX_LENGTH }, 'truncated GEN009 sheet name to fit Smartsheet copy name limit');
+  }
 
   if (existing) {
     log.info({ sheetId: existing.id, sheetName }, 'reusing existing GEN009 sheet copy');
@@ -90,6 +98,21 @@ function renderTemplate(template, ctx) {
     .replaceAll('{projectName}', ctx.projectName)
     .replaceAll('{projectNumber}', ctx.projectNumber)
     .replaceAll('{projectType}', ctx.projectType);
+}
+
+function truncateSmartsheetCopyName(name) {
+  const text = String(name || '').trim().replace(/\s+/g, ' ');
+  if (text.length <= SMARTSHEET_COPY_NAME_MAX_LENGTH) {
+    return text;
+  }
+
+  const suffix = text.match(/\s+GEN009$/i)?.[0] || '';
+  if (!suffix) {
+    return text.slice(0, SMARTSHEET_COPY_NAME_MAX_LENGTH).trim();
+  }
+
+  const prefixMaxLength = SMARTSHEET_COPY_NAME_MAX_LENGTH - suffix.length;
+  return `${text.slice(0, prefixMaxLength).trim()}${suffix}`;
 }
 
 function sheetIdFromCopyResult(data) {
@@ -194,4 +217,4 @@ function sameName(left, right) {
   return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
 }
 
-module.exports = { run };
+module.exports = { run, truncateSmartsheetCopyName };

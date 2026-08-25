@@ -7,6 +7,7 @@ const { childLogger } = require('../utils/logger');
 const runStateStore = require('../utils/runStateStore');
 const { retryResourceNotReady } = require('../utils/retryResourceNotReady');
 const { findColumnByTitle, normalizeLookupKey } = require('../utils/smartsheetSheet');
+const { truncateSmartsheetCopyName } = require('./step01-copyGen009Template');
 
 const TASK_NAME_COLUMN = 'Task Name';
 
@@ -54,7 +55,7 @@ async function run(ctx) {
 async function resolveProjectPlanSheetId(ctx) {
   const smartsheet = ctx.clients.smartsheet;
   const workspace = (await smartsheet.get(`/workspaces/${config.smartsheet.zActiveWorkspaceId}`)).data;
-  const projectFolder = findProjectFolder(workspace, ctx.projectName);
+  const projectFolder = findProjectFolder(workspace, ctx);
 
   if (!projectFolder) {
     throw new Error(`Could not find a project folder containing project name: ${ctx.projectName}`);
@@ -77,12 +78,48 @@ async function resolveProjectPlanSheetId(ctx) {
   throw new Error(`Could not find an existing Project Plan sheet with ${TASK_NAME_COLUMN} sections under project folder: ${projectFolder.name}`);
 }
 
-function findProjectFolder(container, projectName) {
+function findProjectFolder(container, ctx) {
   const folders = allFolders(container);
-  const expected = normalizeName(projectName);
-  return folders.find((folder) => normalizeName(folder.name) === expected)
-    || folders.find((folder) => normalizeName(folder.name).includes(expected))
+  const candidates = projectFolderNameCandidates(ctx).map(normalizeName).filter(Boolean);
+  return folders.find((folder) => candidates.includes(normalizeName(folder.name)))
+    || folders.find((folder) => candidates.some((candidate) => folderNameMatchesCandidate(folder.name, candidate)))
     || null;
+}
+
+function projectFolderNameCandidates(ctx) {
+  const projectName = typeof ctx === 'string' ? ctx : ctx.projectName;
+  const projectNumber = typeof ctx === 'string' ? '' : ctx.projectNumber;
+  const truncatedProjectName = truncateSmartsheetCopyName(`${projectName} GEN009`).replace(/\s+GEN009$/i, '').trim();
+  const candidates = [projectName];
+
+  if (projectNumber) {
+    candidates.push(`${projectName} - ${projectNumber}`);
+  }
+  if (truncatedProjectName && truncatedProjectName !== projectName) {
+    candidates.push(truncatedProjectName);
+    if (projectNumber) {
+      candidates.push(`${truncatedProjectName} - ${projectNumber}`);
+    }
+  }
+
+  for (const name of [...candidates]) {
+    candidates.push(renderProjectFolderName(name, projectNumber));
+  }
+
+  return [...new Set(candidates.map((candidate) => String(candidate || '').trim()).filter(Boolean))];
+}
+
+function renderProjectFolderName(projectName, projectNumber) {
+  return String(config.smartsheet.projectFolderNameTemplate || '{projectName}')
+    .replaceAll('{projectName}', projectName)
+    .replaceAll('{projectNumber}', projectNumber || '')
+    .trim();
+}
+
+function folderNameMatchesCandidate(folderName, normalizedCandidate) {
+  const normalizedFolderName = normalizeName(folderName);
+  return normalizedFolderName.includes(normalizedCandidate)
+    || (normalizedCandidate.length >= 20 && normalizedFolderName.length >= 20 && normalizedCandidate.startsWith(normalizedFolderName));
 }
 
 function allFolders(container) {
