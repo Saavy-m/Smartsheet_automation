@@ -41,14 +41,15 @@ async function run(ctx) {
     const graph = ctx.clients.graph;
     const buffer = await graph.download(downloadUrl);
     const parsed = await pdfParse(buffer, { max: 1 });
+    const signedLine = findSignedLine(parsed.text || '');
     const firstLine = (parsed.text || '').split(/\r?\n/).find(Boolean) || '';
-    const signed = classifySignedStatus(firstLine);
+    const signed = Boolean(signedLine);
     const contract = {
       signed,
       attachmentId: attachment.id,
       attachmentName: attachment.name || '',
       attachmentUrl: downloadUrl,
-      signedLine: signed ? firstLine : '',
+      signedLine,
       firstLine
     };
 
@@ -141,7 +142,7 @@ async function resolveAttachmentDownloadUrl(ctx, attachment) {
 }
 
 async function resolveProjectRowContext(ctx) {
-  const sheetId = normalizeSheetId(config.smartsheet.masterProjectListSheetId);
+  const sheetId = normalizeSheetId(ctx.masterProjectListSheetId || config.smartsheet.masterProjectListSheetId);
 
   if (!sheetId) {
     throw new Error('Master Project List sheet id was not provided');
@@ -182,6 +183,13 @@ function classifySignedStatus(firstLine) {
   const signedPrefix = String(config.signedKeyword || '').trim().replace(/:\s*$/, '');
   const signedPattern = new RegExp(`^${escapeRegExp(signedPrefix)}:\\s*\\S+\\s*$`);
   return signedPattern.test(String(firstLine || '').trim());
+}
+
+function findSignedLine(text) {
+  return String(text || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(classifySignedStatus) || '';
 }
 
 function escapeRegExp(value) {
