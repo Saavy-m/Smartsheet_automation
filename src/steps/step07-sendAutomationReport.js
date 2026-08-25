@@ -202,7 +202,7 @@ function stepGuidance(stepRef, ctx) {
     step02b: `Open the copied checklist and confirm the Patterson column name matches CHECKLIST_PATTERSON_COLUMN: ${smartsheetUrls.gen009Checklist || 'checklist URL unavailable'}`,
     step02c: `Open the Project Plan sheet and trim or verify the project-type section manually: ${smartsheetUrls.projectPlan || 'project plan URL unavailable'}`,
     step02d: `Confirm OFFICE_ADMIN_GROUP_ID and Smartsheet sharing permissions for the checklist: ${smartsheetUrls.gen009Checklist || 'checklist URL unavailable'}`,
-    step02e: `Contract attachment verification was not automated for this run; confirm the signed contract manually from the project records.`,
+    step02e: contractReviewGuidance(ctx),
     step03: `Open the project toolkit reports and confirm each filter uses project number ${ctx.projectNumber}: ${smartsheetUrls.projectToolkitFolder || 'folder URL unavailable'}`,
     step04a: `Open the Orders report, publish it, and paste the published URL into the checklist/dashboard: ${smartsheetUrls.ordersReport || 'Orders report URL unavailable'}`,
     step04b: `Check OneDrive template and destination access for ${config.graph.oneDriveUserId}; created folder URLs are included above when available.`,
@@ -298,6 +298,9 @@ function buildContractSignedSummary(report) {
   } else if (contract.signed === false) {
     label = buildUnsignedContractSummary(contract);
     highlight = true;
+  } else if (contract.invalidFileType) {
+    label = buildInvalidContractFileSummary(contract);
+    highlight = true;
   } else if (isMissingContractAttachment(contract)) {
     label = 'NO - contract verification could not find a Letter of Agreement file. No contract file was attached for review.';
     highlight = true;
@@ -324,6 +327,23 @@ function buildUnsignedContractSummary(contract) {
     return `NO - contract verification failed. ${contract.attachmentName} could not be attached to this report; review it from the project records.`;
   }
   return 'NO - contract verification failed. No contract file was attached for review.';
+}
+
+function buildInvalidContractFileSummary(contract) {
+  const fileType = contract.attachmentFileType || 'unsupported file';
+  const fileName = contract.attachmentName ? ` (${contract.attachmentName})` : '';
+  return `Needs review - the uploaded contract was ${articleFor(fileType)} ${fileType}${fileName}. Please upload the contract as a PDF file.`;
+}
+
+function contractReviewGuidance(ctx) {
+  if (ctx.contract?.invalidFileType) {
+    return 'The contract file could not be checked because it was not a PDF. Please upload the contract as a PDF file, then review the contract again.';
+  }
+  return 'Contract attachment verification was not automated for this run; confirm the signed contract manually from the project records.';
+}
+
+function articleFor(value) {
+  return /^[aeiou]/i.test(String(value || '')) ? 'an' : 'a';
 }
 
 function isMissingContractAttachment(contract) {

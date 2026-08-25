@@ -28,6 +28,14 @@ async function run(ctx) {
       await markNeedsReview(ctx, 'No Letter of Agreement attachment found');
       return ctx;
     }
+    if (attachment.invalidFileType) {
+      await markNeedsReview(ctx, invalidFileTypeMessage(attachment), {
+        attachmentName: attachment.name || '',
+        attachmentFileType: attachment.fileType || 'unsupported file',
+        invalidFileType: true
+      });
+      return ctx;
+    }
 
     const downloadUrl = await resolveAttachmentDownloadUrl(ctx, attachment);
     const graph = ctx.clients.graph;
@@ -64,8 +72,58 @@ async function findSignedContractAttachment(ctx) {
   const { sheetId, rowId } = await resolveProjectRowContext(ctx);
   const response = await smartsheet.get(`/sheets/${sheetId}/rows/${rowId}/attachments`);
   const attachments = response.data.data || [];
-  const attachment = attachments.find((item) => /letter|agreement|contract|loa/i.test(item.name || '')) || attachments[0];
+  const likelyContractAttachments = attachments.filter(isLikelyContractAttachment);
+  const pdfAttachments = attachments.filter(isPdfAttachment);
+  const attachment = likelyContractAttachments.find(isPdfAttachment) || pdfAttachments[0];
+  if (!attachment && likelyContractAttachments.length) {
+    const invalidAttachment = likelyContractAttachments[0];
+    return {
+      ...invalidAttachment,
+      sheetId,
+      invalidFileType: true,
+      fileType: describeAttachmentFileType(invalidAttachment)
+    };
+  }
   return attachment ? { ...attachment, sheetId } : null;
+}
+
+function isLikelyContractAttachment(attachment) {
+  return /letter|agreement|contract|loa/i.test(attachment.name || '');
+}
+
+function isPdfAttachment(attachment) {
+  return /\.pdf$/i.test(attachment.name || '') || /\/pdf$/i.test(attachment.mimeType || attachment.contentType || '');
+}
+
+function describeAttachmentFileType(attachment) {
+  const name = String(attachment.name || '').trim();
+  const extension = name.match(/\.([^.]+)$/)?.[1]?.toLowerCase();
+  const labels = {
+    csv: 'spreadsheet file',
+    gif: 'image file',
+    heic: 'image file',
+    jpeg: 'image file',
+    jpg: 'image file',
+    numbers: 'spreadsheet file',
+    png: 'image file',
+    tif: 'image file',
+    tiff: 'image file',
+    webp: 'image file',
+    xls: 'Excel file',
+    xlsm: 'Excel file',
+    xlsx: 'Excel file'
+  };
+  return labels[extension] || attachment.mimeType || attachment.contentType || (extension ? `${extension.toUpperCase()} file` : 'unsupported file');
+}
+
+function invalidFileTypeMessage(attachment) {
+  const fileType = attachment.fileType || describeAttachmentFileType(attachment);
+  const fileName = attachment.name ? ` (${attachment.name})` : '';
+  return `The contract attachment was not a valid file for automatic review. You uploaded ${articleFor(fileType)} ${fileType}${fileName}; please upload the contract as a PDF file.`;
+}
+
+function articleFor(value) {
+  return /^[aeiou]/i.test(String(value || '')) ? 'an' : 'a';
 }
 
 async function resolveAttachmentDownloadUrl(ctx, attachment) {
