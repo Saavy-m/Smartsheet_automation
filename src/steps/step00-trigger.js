@@ -155,7 +155,7 @@ function parseProjectDetailsFromEmail(html) {
   const projectVertical = config.projectTypeEmailLabels
     .map((label) => extractField(text, label, fieldLabels))
     .find(Boolean);
-  const projectType = determineProjectType({ patersonProject, projectVertical });
+  const projectType = normalizeProjectType(projectVertical);
 
   if (!projectName || !projectNumber || !projectType) {
     throw new Error('Could not parse Project Name, Project Number, and Project Type from forwarded alert email');
@@ -172,17 +172,6 @@ function extractField(text, label, fieldLabels = []) {
   const boundary = nextLabels.length ? `(?=\\s*(?:${nextLabels.join('|')})|$)` : '$';
   const match = text.match(new RegExp(`${escaped}\\s*[:|-]?\\s*(.*?)${boundary}`, 'i'));
   return match?.[1]?.trim() || '';
-}
-
-function determineProjectType({ patersonProject, projectVertical }) {
-  if (isAffirmative(patersonProject)) {
-    return 'Patterson';
-  }
-  return normalizeProjectType(projectVertical);
-}
-
-function isAffirmative(value) {
-  return /^(yes|y|true)$/i.test(String(value || '').trim());
 }
 
 async function confirmProjectOnMasterList({ smartsheet, parsed }) {
@@ -248,7 +237,6 @@ function cellValue(row, columnId) {
 module.exports = {
   confirmProjectOnMasterList,
   handleGraphWebhook,
-  determineProjectType,
   parseProjectDetailsFromEmail,
   processNotification,
   registerSubscription,

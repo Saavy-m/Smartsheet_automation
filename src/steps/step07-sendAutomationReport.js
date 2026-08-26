@@ -293,8 +293,11 @@ function buildContractSignedSummary(report) {
   const contract = report.contract || {};
   let label = 'Not checked';
   let highlight = false;
+  let highlightTone = 'warning';
   if (contract.signed === true) {
     label = 'Yes';
+    highlight = true;
+    highlightTone = 'success';
   } else if (contract.signed === false) {
     label = buildUnsignedContractSummary(contract);
     highlight = true;
@@ -315,7 +318,8 @@ function buildContractSignedSummary(report) {
 
   return {
     label,
-    highlight
+    highlight,
+    highlightTone
   };
 }
 
@@ -356,7 +360,10 @@ function renderSummaryValue(value) {
   }
   const text = escapeHtml(value.label || '');
   if (value.highlight) {
-    return `<span style="display:inline-block;padding:5px 8px;background:#fff2b8;border:1px solid #d59b28;color:#5a2f00;font-weight:700;">${text}</span>`;
+    const style = value.highlightTone === 'success'
+      ? 'background:#e7f6ed;border:1px solid #6eb883;color:#185c2f;'
+      : 'background:#fff2b8;border:1px solid #d59b28;color:#5a2f00;';
+    return `<span style="display:inline-block;padding:5px 8px;${style}font-weight:700;">${text}</span>`;
   }
   if (!value.url) {
     return text;
