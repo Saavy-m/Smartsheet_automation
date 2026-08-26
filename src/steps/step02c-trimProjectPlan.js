@@ -297,10 +297,11 @@ function normalizeProjectType(value) {
 }
 
 function projectPlanTrimType(ctx) {
+  if (isPatersonProject(ctx)) {
+    return 'Patterson';
+  }
+
   if (/^hospitality$/i.test(String(ctx.projectType || '').trim())) {
-    if (isPatersonProject(ctx)) {
-      return 'Patterson';
-    }
     return 'HospitalityManualReview';
   }
   return ctx.projectType;
@@ -348,4 +349,4 @@ function chunk(items, size) {
   return chunks;
 }
 
-module.exports = { findRowsOutsideProjectType, projectPlanUrl, run };
+module.exports = { findRowsOutsideProjectType, projectPlanTrimType, projectPlanUrl, run };

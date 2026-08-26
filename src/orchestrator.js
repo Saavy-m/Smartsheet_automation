@@ -74,7 +74,7 @@ async function run(initialCtx, options = {}) {
 
       if (ctx.stepStatus?.[stepRef] === 'needs_manual_review') {
         log.warn('step completed with manual review required; not marking checklist done');
-        addStepResult(ctx, { stepRef, status: 'needs_manual_review', message: 'Step completed with manual review required' });
+        addStepResult(ctx, { stepRef, status: 'needs_manual_review', message: 'Manual task required' });
         if (options.stopAfterStep === stepRef) {
           ctx.stoppedAfterStep = stepRef;
           ctx.automationReport = buildAutomationReport(ctx);

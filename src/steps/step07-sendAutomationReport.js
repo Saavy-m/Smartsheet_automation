@@ -5,12 +5,27 @@ const { buildAutomationReport } = require('../utils/automationReport');
 const { childLogger } = require('../utils/logger');
 
 const MAX_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+const STEP_LABELS = {
+  step01: 'Step 1 - Copy GEN009 template',
+  step02a: 'Step 2a - Write project info',
+  step02b: 'Step 2b - Hide Paterson column',
+  step02c: 'Step 2c - Trim Project Plan',
+  step02d: 'Step 2d - Share GEN009 checklist',
+  step02e: 'Step 2e - Verify signed contract',
+  step03: 'Step 3 - Update filters and rename reports',
+  step04a: 'Step 4a - Publish Orders report',
+  step04b: 'Step 4b - Create OneDrive folders',
+  step05: 'Step 5 - Record manual checkpoint handoff',
+  step06: 'Step 6 - Mark checklist rows done',
+  step07: 'Step 7 - Send automation report'
+};
 
 async function run(ctx) {
   const log = childLogger(ctx, 'step07');
   const report = buildAutomationReport(ctx);
   const resources = await collectResources(ctx, log);
   const failureRecap = buildFailureRecap(ctx);
+  const recapCounts = countRecapStatuses(failureRecap);
   const attachments = prepareEmailAttachments(ctx, log);
   const html = buildEmailHtml({ ctx, report, resources, failureRecap });
 
@@ -19,7 +34,7 @@ async function run(ctx) {
   await mailGraph.sendMail({
     fromUserId: config.graph.mailboxUserId,
     to: config.manualCheckpointOwnerEmail,
-    subject: `Project Spin Up Automation Report for ${ctx.projectName} - ${failureRecap.length} ${failureRecap.length === 1 ? 'error' : 'errors'}`,
+    subject: `Project Spin Up Automation Report for ${ctx.projectName} - ${formatRecapSubject(recapCounts)}`,
     html,
     attachments
   });
@@ -29,12 +44,31 @@ async function run(ctx) {
     to: config.manualCheckpointOwnerEmail,
     sentAt: new Date().toISOString(),
     resourceCount: resources.length,
-    failedStepCount: failureRecap.length,
+    failedStepCount: recapCounts.failed,
+    manualTaskCount: recapCounts.needs_manual_review,
     attachmentCount: attachments.length
   };
 
-  log.info({ to: config.manualCheckpointOwnerEmail, failedStepCount: failureRecap.length }, 'automation report email sent');
+  log.info({ to: config.manualCheckpointOwnerEmail, failedStepCount: recapCounts.failed, manualTaskCount: recapCounts.needs_manual_review }, 'automation report email sent');
   return ctx;
+}
+
+function countRecapStatuses(failureRecap) {
+  return failureRecap.reduce((counts, item) => {
+    counts[item.status] = (counts[item.status] || 0) + 1;
+    return counts;
+  }, { failed: 0, needs_manual_review: 0 });
+}
+
+function formatRecapSubject(counts) {
+  const parts = [];
+  if (counts.failed) {
+    parts.push(`${counts.failed} ${counts.failed === 1 ? 'error' : 'errors'}`);
+  }
+  if (counts.needs_manual_review) {
+    parts.push(`${counts.needs_manual_review} manual ${counts.needs_manual_review === 1 ? 'task' : 'tasks'}`);
+  }
+  return parts.length ? parts.join(', ') : 'no errors';
 }
 
 function prepareEmailAttachments(ctx, log) {
@@ -240,7 +274,7 @@ function buildEmailHtml({ ctx, report, resources, failureRecap }) {
               </tr>
               <tr>
                 <td style="padding:0 32px 28px 32px;">
-                  <h2 style="margin:0 0 14px 0;font-size:20px;line-height:1.3;color:#12323f;">Items Needing Review</h2>
+                  <h2 style="margin:0 0 14px 0;font-size:20px;line-height:1.3;color:#12323f;">Manual Tasks and Errors</h2>
                   ${buildFailureSection(failureRecap)}
                 </td>
               </tr>
@@ -272,7 +306,7 @@ function buildProjectSummaryTable(report, ctx) {
     ['Run ID', report.runId],
     ['Completed Steps', report.passedSteps],
     ['Failed Steps', report.failedSteps],
-    ['Manual Review Steps', report.manualReviewSteps]
+    ['Manual Tasks', report.manualReviewSteps]
   ];
 
   return `
@@ -296,8 +330,6 @@ function buildContractSignedSummary(report) {
   let highlightTone = 'warning';
   if (contract.signed === true) {
     label = 'Yes';
-    highlight = true;
-    highlightTone = 'success';
   } else if (contract.signed === false) {
     label = buildUnsignedContractSummary(contract);
     highlight = true;
@@ -336,7 +368,7 @@ function buildUnsignedContractSummary(contract) {
 function buildInvalidContractFileSummary(contract) {
   const fileType = contract.attachmentFileType || 'unsupported file';
   const fileName = contract.attachmentName ? ` (${contract.attachmentName})` : '';
-  return `Needs review - the uploaded contract was ${articleFor(fileType)} ${fileType}${fileName}. Please upload the contract as a PDF file.`;
+  return `Manual task - the uploaded contract was ${articleFor(fileType)} ${fileType}${fileName}. Please upload the contract as a PDF file.`;
 }
 
 function contractReviewGuidance(ctx) {
@@ -449,7 +481,7 @@ function buildFailureSection(failureRecap) {
 
   return `${failureRecap.map((failure) => `
     <div style="margin:0 0 12px 0;padding:12px 14px;background:#ffffff;border:1px solid #d8e1e7;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.5;color:#23313d;">
-    <p style="margin:0 0 8px 0;"><strong>Automation area:</strong> ${escapeHtml(failure.stepRef)} (${formatFailureStatus(failure.status)})</p>
+    <p style="margin:0 0 8px 0;"><strong>Automation area:</strong> ${escapeHtml(stepDisplayName(failure.stepRef))} (${formatFailureStatus(failure.status)})</p>
     <p style="margin:0 0 8px 0;"><strong>What happened:</strong> ${escapeHtml(failure.message)}</p>
     <p style="margin:0;"><strong>What to do next:</strong> ${linkifyText(failure.guidance)}</p>
     ${failure.problems.map((problem) => `
@@ -461,9 +493,13 @@ function buildFailureSection(failureRecap) {
 
 function formatFailureStatus(status) {
   if (status === 'needs_manual_review') {
-    return 'needs review';
+    return 'manual task';
   }
   return String(status || 'recorded').replace(/_/g, ' ');
+}
+
+function stepDisplayName(stepRef) {
+  return STEP_LABELS[stepRef] || stepRef;
 }
 
 function buildRecoveryContactFooter() {
@@ -484,8 +520,8 @@ function buildStepsTable(steps) {
 
   const rows = steps.map((step) => `
     <tr>
-      <td style="padding:9px 10px;border-bottom:1px solid #d8e1e7;color:#23313d;font-weight:700;">${escapeHtml(step.stepRef)}</td>
-      <td style="padding:9px 10px;border-bottom:1px solid #d8e1e7;color:#315163;">${escapeHtml(step.status)}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #d8e1e7;color:#23313d;font-weight:700;">${escapeHtml(stepDisplayName(step.stepRef))}</td>
+      <td style="padding:9px 10px;border-bottom:1px solid #d8e1e7;color:#315163;">${escapeHtml(formatStepStatus(step.status))}</td>
       <td style="padding:9px 10px;border-bottom:1px solid #d8e1e7;color:#23313d;">${escapeHtml(step.message || step.outcome || '')}</td>
       <td style="padding:9px 10px;border-bottom:1px solid #d8e1e7;color:#496879;">${escapeHtml(step.completedAt || '')}</td>
     </tr>
@@ -497,6 +533,13 @@ function buildStepsTable(steps) {
       <tbody>${rows}</tbody>
     </table>
   `;
+}
+
+function formatStepStatus(status) {
+  if (status === 'needs_manual_review') {
+    return 'manual task';
+  }
+  return String(status || 'recorded').replace(/_/g, ' ');
 }
 
 function buildNamedLink(label, url) {
