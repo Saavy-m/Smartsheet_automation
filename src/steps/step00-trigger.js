@@ -6,9 +6,10 @@ const crypto = require('crypto');
 const config = require('../../config');
 const { createSmartsheetClient } = require('../clients/smartsheetClient');
 const { createMailboxGraphClient, createOneDriveGraphClient } = require('../clients/graphClient');
-const { childLogger } = require('../utils/logger');
+const { childLogger, logger } = require('../utils/logger');
 
 const GRAPH_SUBSCRIPTION_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const EMAIL_BODY_LOG_MAX_LENGTH = 8000;
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -64,7 +65,22 @@ async function handleGraphWebhook(req, res, dependencies = {}) {
   res.sendStatus(202);
 
   for (const notification of notifications) {
-    await processNotification(notification, dependencies);
+    try {
+      await processNotification(notification, dependencies);
+    } catch (error) {
+      const logPayload = {
+        err: error,
+        messageId: notification.resourceData?.id || extractMessageId(notification.resource),
+        resource: notification.resource
+      };
+
+      if (isNonProjectAlertEmailError(error)) {
+        logger.warn(logPayload, 'skipping mailbox message that is not a project spin-up alert');
+        continue;
+      }
+
+      logger.error(logPayload, 'failed to process Graph mailbox notification');
+    }
   }
 }
 
@@ -82,6 +98,7 @@ async function processNotification(notification, dependencies = {}) {
   }
 
   const message = (await mailGraph.getMessage(config.graph.mailboxUserId, messageId)).data;
+  logReceivedMailboxMessage(message, messageId);
   const parsed = parseProjectDetailsFromEmail(message.body?.content || '');
   const confirmedProject = await confirmProjectOnMasterList({ smartsheet, parsed });
   const runId = `${confirmedProject.projectNumber}-${crypto.randomUUID()}`;
@@ -125,13 +142,7 @@ function extractMessageId(resource = '') {
 }
 
 function parseProjectDetailsFromEmail(html) {
-  const text = html
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ')
-    .trim();
+  const text = normalizeEmailText(html);
 
   const fieldLabels = [
     'Project Number',
@@ -155,13 +166,58 @@ function parseProjectDetailsFromEmail(html) {
   const projectVertical = config.projectTypeEmailLabels
     .map((label) => extractField(text, label, fieldLabels))
     .find(Boolean);
-  const projectType = normalizeProjectType(projectVertical);
+  const projectType = projectVertical ? normalizeProjectType(projectVertical) : '';
 
   if (!projectName || !projectNumber || !projectType) {
-    throw new Error('Could not parse Project Name, Project Number, and Project Type from forwarded alert email');
+    throw new NonProjectAlertEmailError('Could not parse Project Name, Project Number, and Project Type from forwarded alert email', {
+      missingFields: [
+        !projectName && 'Project Name',
+        !projectNumber && 'Project Number',
+        !projectType && 'Project Type'
+      ].filter(Boolean)
+    });
   }
 
   return { projectName, projectNumber, projectVertical, projectType: normalizeProjectType(projectType), patersonProject, projectDashboardUrl };
+}
+
+function logReceivedMailboxMessage(message, messageId) {
+  logger.info({
+    messageId,
+    internetMessageId: message.internetMessageId,
+    conversationId: message.conversationId,
+    subject: message.subject,
+    from: emailAddress(message.from),
+    sender: emailAddress(message.sender),
+    receivedDateTime: message.receivedDateTime,
+    bodyPreview: message.bodyPreview,
+    bodyContentType: message.body?.contentType,
+    bodyText: truncateForLog(normalizeEmailText(message.body?.content || ''), EMAIL_BODY_LOG_MAX_LENGTH)
+  }, 'received Graph mailbox message');
+}
+
+function normalizeEmailText(html) {
+  return String(html || '')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function emailAddress(value) {
+  return value?.emailAddress?.address || value?.emailAddress?.name || '';
+}
+
+function truncateForLog(value, maxLength) {
+  const text = String(value || '');
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, maxLength)}... [truncated ${text.length - maxLength} chars]`;
 }
 
 function extractField(text, label, fieldLabels = []) {
@@ -234,9 +290,24 @@ function cellValue(row, columnId) {
   return cell?.displayValue ?? cell?.value;
 }
 
+class NonProjectAlertEmailError extends Error {
+  constructor(message, details = {}) {
+    super(message);
+    this.name = 'NonProjectAlertEmailError';
+    this.code = 'NON_PROJECT_ALERT_EMAIL';
+    Object.assign(this, details);
+  }
+}
+
+function isNonProjectAlertEmailError(error) {
+  return error?.code === 'NON_PROJECT_ALERT_EMAIL';
+}
+
 module.exports = {
   confirmProjectOnMasterList,
   handleGraphWebhook,
+  isNonProjectAlertEmailError,
+  NonProjectAlertEmailError,
   parseProjectDetailsFromEmail,
   processNotification,
   registerSubscription,
