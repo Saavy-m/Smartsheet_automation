@@ -114,7 +114,7 @@ async function collectResources(ctx, log) {
   add('Source', 'Published Orders report', ctx.publishedUrls?.ordersReport, 'Use this URL for the dashboard web content widget.');
   add('Source', 'Published Orders report embed code', ctx.publishedUrls?.ordersReport, ctx.publishedEmbeds?.ordersReport || 'Embed code unavailable; use the published report URL.');
   add('Destination', 'GEN009 checklist', smartsheetUrls.gen009Checklist, 'Checklist receiving project values, links, and manual rows.');
-  add('Destination', 'Project Plan sheet', smartsheetUrls.projectPlan, 'Review this if project plan trimming failed or needs manual review.');
+  add('Destination', 'Project Plan sheet', smartsheetUrls.projectPlan, 'Project Plan sheet trimmed automatically from the Project Vertical.');
   add('Source', 'GEN009 template sheet', smartsheetUrls.gen009Template, 'Configured source template copied by step01.');
   add('Source', 'Automation workspace', smartsheetUrls.automationWorkspace, config.smartsheet.zActiveWorkspaceName || 'Configured Smartsheet workspace.');
   add('Destination', 'Project toolkit folder', smartsheetUrls.projectToolkitFolder, 'Destination folder for project Smartsheet artifacts.');
@@ -234,7 +234,7 @@ function stepGuidance(stepRef, ctx) {
     step01: `Confirm SMARTSHEET_GEN009_TEMPLATE_ID and SMARTSHEET_PROJECT_ROOT_FOLDER_PATH, then verify the destination folder: ${smartsheetUrls.projectToolkitFolder || 'folder URL unavailable'}`,
     step02a: `Open the copied checklist and verify the configured project name/number rows and columns: ${smartsheetUrls.gen009Checklist || 'checklist URL unavailable'}`,
     step02b: `Open the copied checklist and confirm the Patterson column name matches CHECKLIST_PATTERSON_COLUMN: ${smartsheetUrls.gen009Checklist || 'checklist URL unavailable'}`,
-    step02c: `Open the Project Plan sheet and trim or verify the project-type section manually: ${smartsheetUrls.projectPlan || 'project plan URL unavailable'}`,
+    step02c: `Confirm the Project Vertical value maps to an available Project Plan section, then verify the Project Plan sheet: ${smartsheetUrls.projectPlan || 'project plan URL unavailable'}`,
     step02d: `Confirm OFFICE_ADMIN_GROUP_ID and Smartsheet sharing permissions for the checklist: ${smartsheetUrls.gen009Checklist || 'checklist URL unavailable'}`,
     step02e: contractReviewGuidance(ctx),
     step03: `Open the project toolkit reports and confirm each filter uses project number ${ctx.projectNumber}: ${smartsheetUrls.projectToolkitFolder || 'folder URL unavailable'}`,
