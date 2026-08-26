@@ -1,4 +1,4 @@
-const DEFAULT_RETRIES = 2;
+const DEFAULT_RETRIES = 3;
 const DEFAULT_DELAY_MS = 60 * 1000;
 
 async function retryResourceNotReady(fn, { log, resourceName = 'resource', retries = DEFAULT_RETRIES, delayMs = DEFAULT_DELAY_MS } = {}) {

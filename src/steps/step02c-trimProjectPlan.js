@@ -1,10 +1,9 @@
 // Step 02c trims the Project Plan sheet down to the matching project-type section.
 // run() finds the project folder in the configured workspace, loads the existing Project Plan sheet, and deletes rows unless DRY_RUN is on.
-// Helper functions discover project folders/sheets, identify section rows from Task Name, normalize project type, record manual-review state, format sheet URLs, and batch row deletes.
+// Helper functions discover project folders/sheets, identify section rows from Task Name, normalize project type, format sheet URLs, and batch row deletes.
 
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
-const runStateStore = require('../utils/runStateStore');
 const { retryResourceNotReady } = require('../utils/retryResourceNotReady');
 const { findColumnByTitle, normalizeLookupKey } = require('../utils/smartsheetSheet');
 const { truncateSmartsheetCopyName } = require('./step01-copyGen009Template');
@@ -22,12 +21,6 @@ async function run(ctx) {
 
   ctx.sheetIds.projectPlan = sheetId;
   const projectPlanType = projectPlanTrimType(ctx);
-  if (projectPlanType === 'HospitalityManualReview') {
-    await markProjectPlanNeedsManualTrim(ctx, sheet, sheetId);
-    log.warn({ sheetId, projectPlanUrl: projectPlanUrl(sheet, sheetId) }, 'hospitality project plan trim requires manual review');
-    return ctx;
-  }
-
   const rowsToDelete = findRowsOutsideProjectType(sheet, projectPlanType);
 
   log.warn({
@@ -290,6 +283,9 @@ function isLooseSectionMatch(value, section) {
 }
 
 function normalizeProjectType(value) {
+  const normalized = normalizeLookupKey(value);
+  if (normalized === 'hospitality') return 'Commercial';
+  if (normalized === 'nhorpaterson' || normalized === 'nhorpatterson') return 'Patterson';
   if (/^commercial$/i.test(value)) return 'Commercial';
   if (/^residential$/i.test(value)) return 'Residential';
   if (/^pat{1,2}erson$/i.test(value)) return 'Patterson';
@@ -297,35 +293,7 @@ function normalizeProjectType(value) {
 }
 
 function projectPlanTrimType(ctx) {
-  if (isPatersonProject(ctx)) {
-    return 'Patterson';
-  }
-
-  if (/^hospitality$/i.test(String(ctx.projectType || '').trim())) {
-    return 'HospitalityManualReview';
-  }
-  return ctx.projectType;
-}
-
-function isPatersonProject(ctx) {
-  if (ctx.patersonProject) {
-    return /^(yes|y|true)$/i.test(String(ctx.patersonProject).trim());
-  }
-  return /^pat{1,2}erson$/i.test(String(ctx.projectType || '').trim());
-}
-
-async function markProjectPlanNeedsManualTrim(ctx, sheet, sheetId) {
-  const url = projectPlanUrl(sheet, sheetId);
-  const guidance = `Since Hospitality project plan trimming is not set up, the user has to go and trim the Project Plan manually: ${url}`;
-
-  ctx.stepStatus.step02c = 'needs_manual_review';
-  ctx.problems = ctx.problems || [];
-  ctx.problems.push({
-    step: 'step02c',
-    message: 'ERROR: Project Vertical is Hospitality, but Is this a Paterson Project was not set to Yes.',
-    guidance
-  });
-  await runStateStore.markStepNeedsManualReview(ctx, 'step02c', { reason: 'Hospitality project plan requires manual trim', guidance });
+  return normalizeProjectType(ctx.projectType || ctx.projectVertical);
 }
 
 function projectPlanUrl(sheet, sheetId) {
