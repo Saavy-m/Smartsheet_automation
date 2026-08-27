@@ -10,6 +10,7 @@ const { childLogger, logger } = require('../utils/logger');
 
 const GRAPH_SUBSCRIPTION_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const EMAIL_BODY_LOG_MAX_LENGTH = 8000;
+const SMARTSHEET_AUTOMATION_EMAIL = 'automation@app.smartsheet.com';
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -99,7 +100,7 @@ async function processNotification(notification, dependencies = {}) {
 
   const message = (await mailGraph.getMessage(config.graph.mailboxUserId, messageId)).data;
   logReceivedMailboxMessage(message, messageId);
-  const parsed = parseProjectDetailsFromEmail(message.body?.content || '');
+  const parsed = parseProjectDetailsFromMessage(message);
   const confirmedProject = await confirmProjectOnMasterList({ smartsheet, parsed });
   const runId = `${confirmedProject.projectNumber}-${crypto.randomUUID()}`;
 
@@ -142,7 +143,8 @@ function extractMessageId(resource = '') {
 }
 
 function parseProjectDetailsFromEmail(html) {
-  const text = projectDetailsText(normalizeEmailText(html));
+  const normalizedText = normalizeEmailText(html);
+  const text = projectDetailsText(normalizedText);
 
   const fieldLabelGroups = [
     ['Project Number'],
@@ -156,6 +158,7 @@ function parseProjectDetailsFromEmail(html) {
     ['Changes made by']
   ];
   const fields = extractOrderedFields(text, fieldLabelGroups);
+  const masterProjectRowNumber = extractProjectListRowNumber(text) || extractProjectListRowNumber(normalizedText);
 
   const projectName = fields['Project Name'];
   const projectNumber = fields['Project Number'];
@@ -166,17 +169,30 @@ function parseProjectDetailsFromEmail(html) {
     .find(Boolean);
   const projectType = projectVertical ? normalizeProjectType(projectVertical) : '';
 
-  if (!projectName || !projectNumber || !projectType) {
+  if (!projectName || !projectType) {
     throw new NonProjectAlertEmailError('Could not parse Project Name, Project Number, and Project Type from forwarded alert email', {
       missingFields: [
         !projectName && 'Project Name',
-        !projectNumber && 'Project Number',
         !projectType && 'Project Type'
       ].filter(Boolean)
     });
   }
 
-  return { projectName, projectNumber, projectVertical, projectType: normalizeProjectType(projectType), patersonProject, projectDashboardUrl };
+  return { projectName, projectNumber, masterProjectRowNumber, projectVertical, projectType: normalizeProjectType(projectType), patersonProject, projectDashboardUrl };
+}
+
+function parseProjectDetailsFromMessage(message) {
+  try {
+    return parseProjectDetailsFromEmail(message.body?.content || '');
+  } catch (error) {
+    if (isNonProjectAlertEmailError(error) && isSmartsheetAutomationMessage(message)) {
+      error.name = 'ProjectAlertParseError';
+      error.code = 'PROJECT_ALERT_PARSE_FAILED';
+      error.from = emailAddress(message.from);
+      error.sender = emailAddress(message.sender);
+    }
+    throw error;
+  }
 }
 
 function logReceivedMailboxMessage(message, messageId) {
@@ -207,7 +223,7 @@ function normalizeEmailText(html) {
 }
 
 function projectDetailsText(text) {
-  const rowMatches = Array.from(String(text || '').matchAll(/\bRow\s+\d+\s+Project Number\b/gi));
+  const rowMatches = Array.from(String(text || '').matchAll(/\bRow\s+\d+\s+Project\s+(?:Number|Name)\b/gi));
   const rowMatch = rowMatches.at(-1);
   if (rowMatch) {
     return text.slice(rowMatch.index).replace(/^Row\s+\d+\s+/i, '').trim();
@@ -219,6 +235,17 @@ function projectDetailsText(text) {
   }
 
   return text;
+}
+
+function extractProjectListRowNumber(text) {
+  const rowMatches = Array.from(String(text || '').matchAll(/\bRow\s+(\d+)\s+Project\s+(?:Number|Name)\b/gi));
+  const rowNumber = rowMatches.at(-1)?.[1];
+  return rowNumber ? Number(rowNumber) : null;
+}
+
+function isSmartsheetAutomationMessage(message) {
+  const addresses = [emailAddress(message.from), emailAddress(message.sender)];
+  return addresses.some((address) => address.toLowerCase() === SMARTSHEET_AUTOMATION_EMAIL);
 }
 
 function emailAddress(value) {
@@ -289,25 +316,74 @@ async function confirmProjectOnMasterList({ smartsheet, parsed }) {
     throw new Error('Master Project List is missing one or more configured project columns');
   }
 
-  const row = (sheet.rows || []).find((candidate) => {
-    return String(cellValue(candidate, numberColumn.id) || '').trim() === String(parsed.projectNumber).trim();
-  });
+  const row = findMasterProjectRow(sheet, numberColumn, nameColumn, parsed);
 
   if (!row) {
-    throw new Error(`Project ${parsed.projectNumber} was not found on the Master Project List`);
+    throw new Error(masterProjectNotFoundMessage(parsed));
   }
 
   const projectName = cellValue(row, nameColumn.id) || parsed.projectName;
+  const projectNumber = cellValue(row, numberColumn.id) || parsed.projectNumber;
+
+  if (!projectNumber) {
+    throw new Error(`Master Project List row ${row.rowNumber} is missing ${config.columns.masterProjectNumber}`);
+  }
 
   return {
     projectName,
-    projectNumber: parsed.projectNumber,
+    projectNumber: String(projectNumber).trim(),
     projectType: parsed.projectType,
     patersonProject: parsed.patersonProject,
     projectDashboardUrl: parsed.projectDashboardUrl,
     masterProjectListSheetId: config.smartsheet.masterProjectListSheetId,
     masterProjectRowId: row.id
   };
+}
+
+function findMasterProjectRow(sheet, numberColumn, nameColumn, parsed) {
+  if (parsed.projectNumber) {
+    const expectedProjectNumber = String(parsed.projectNumber).trim();
+    const projectNumberMatch = (sheet.rows || []).find((candidate) => {
+      return String(cellValue(candidate, numberColumn.id) || '').trim() === expectedProjectNumber;
+    });
+    if (projectNumberMatch) {
+      return projectNumberMatch;
+    }
+  }
+
+  if (parsed.masterProjectRowNumber) {
+    const rowNumberMatch = (sheet.rows || []).find((candidate) => candidate.rowNumber === parsed.masterProjectRowNumber);
+    if (rowNumberMatch) {
+      return rowNumberMatch;
+    }
+  }
+
+  return findMasterProjectRowByName(sheet, nameColumn, parsed.projectName);
+}
+
+function findMasterProjectRowByName(sheet, nameColumn, projectName) {
+  const expectedProjectName = normalizeProjectNameForMatch(projectName);
+  if (!expectedProjectName) {
+    return null;
+  }
+
+  return (sheet.rows || []).find((candidate) => {
+    return normalizeProjectNameForMatch(cellValue(candidate, nameColumn.id)) === expectedProjectName;
+  }) || null;
+}
+
+function normalizeProjectNameForMatch(value) {
+  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+function masterProjectNotFoundMessage(parsed) {
+  if (parsed.projectNumber) {
+    return `Project ${parsed.projectNumber} was not found on the Master Project List by project number, row number, or project name`;
+  }
+  if (parsed.masterProjectRowNumber) {
+    return `Master Project List row ${parsed.masterProjectRowNumber} from the Smartsheet alert was not found by row number or project name`;
+  }
+  return `Project ${parsed.projectName || ''} was not found on the Master Project List by project name`;
 }
 
 function isPlaceholder(value) {
