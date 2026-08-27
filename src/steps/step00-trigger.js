@@ -142,29 +142,27 @@ function extractMessageId(resource = '') {
 }
 
 function parseProjectDetailsFromEmail(html) {
-  const text = normalizeEmailText(html);
+  const text = projectDetailsText(normalizeEmailText(html));
 
-  const fieldLabels = [
-    'Project Number',
-    'Project Name',
-    'Project Dashboard',
-    'Hourly or Flat Rate',
-    'Project Vertical',
-    'Project Type',
-    'Vertical',
-    'Project Plan',
-    'Comments',
-    'Bypass Deposit on Project start',
-    'Is this a Paterson Project',
-    'Changes made by'
+  const fieldLabelGroups = [
+    ['Project Number'],
+    ['Project Name'],
+    ['Project Dashboard'],
+    ['Hourly or Flat Rate'],
+    ['Project Vertical', 'Project Type', 'Vertical', 'Project Plan'],
+    ['Comments'],
+    ['Bypass Deposit on Project start'],
+    ['Is this a Paterson Project'],
+    ['Changes made by']
   ];
+  const fields = extractOrderedFields(text, fieldLabelGroups);
 
-  const projectName = extractField(text, 'Project Name', fieldLabels);
-  const projectNumber = extractField(text, 'Project Number', fieldLabels);
-  const projectDashboardUrl = extractField(text, 'Project Dashboard', fieldLabels);
-  const patersonProject = extractField(text, 'Is this a Paterson Project', fieldLabels);
+  const projectName = fields['Project Name'];
+  const projectNumber = fields['Project Number'];
+  const projectDashboardUrl = fields['Project Dashboard'];
+  const patersonProject = fields['Is this a Paterson Project'];
   const projectVertical = config.projectTypeEmailLabels
-    .map((label) => extractField(text, label, fieldLabels))
+    .map((label) => fields[label])
     .find(Boolean);
   const projectType = projectVertical ? normalizeProjectType(projectVertical) : '';
 
@@ -208,6 +206,21 @@ function normalizeEmailText(html) {
     .trim();
 }
 
+function projectDetailsText(text) {
+  const rowMatches = Array.from(String(text || '').matchAll(/\bRow\s+\d+\s+Project Number\b/gi));
+  const rowMatch = rowMatches.at(-1);
+  if (rowMatch) {
+    return text.slice(rowMatch.index).replace(/^Row\s+\d+\s+/i, '').trim();
+  }
+
+  const detailsIndex = text.toLowerCase().lastIndexOf('project list details');
+  if (detailsIndex >= 0) {
+    return text.slice(detailsIndex).trim();
+  }
+
+  return text;
+}
+
 function emailAddress(value) {
   return value?.emailAddress?.address || value?.emailAddress?.name || '';
 }
@@ -220,14 +233,46 @@ function truncateForLog(value, maxLength) {
   return `${text.slice(0, maxLength)}... [truncated ${text.length - maxLength} chars]`;
 }
 
-function extractField(text, label, fieldLabels = []) {
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const nextLabels = fieldLabels
-    .filter((candidate) => candidate.toLowerCase() !== label.toLowerCase())
-    .map((candidate) => candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-  const boundary = nextLabels.length ? `(?=\\s*(?:${nextLabels.join('|')})|$)` : '$';
-  const match = text.match(new RegExp(`${escaped}\\s*[:|-]?\\s*(.*?)${boundary}`, 'i'));
-  return match?.[1]?.trim() || '';
+function extractOrderedFields(text, fieldLabelGroups = []) {
+  const fields = {};
+  let cursor = 0;
+
+  for (let index = 0; index < fieldLabelGroups.length; index += 1) {
+    const labelMatch = findNextLabel(text, fieldLabelGroups[index], cursor);
+    if (!labelMatch) {
+      continue;
+    }
+
+    const nextMatch = findNextLabel(text, fieldLabelGroups[index + 1] || [], labelMatch.valueStart);
+    const valueEnd = nextMatch?.index ?? text.length;
+    const value = text.slice(labelMatch.valueStart, valueEnd).trim();
+    for (const label of fieldLabelGroups[index]) {
+      fields[label] = value;
+    }
+    cursor = valueEnd;
+  }
+
+  return fields;
+}
+
+function findNextLabel(text, labels = [], startIndex = 0) {
+  let best = null;
+  for (const label of labels) {
+    const pattern = new RegExp(`\\b${escapeRegExp(label)}\\b\\s*[:|-]?\\s*`, 'i');
+    const match = pattern.exec(text.slice(startIndex));
+    if (!match) {
+      continue;
+    }
+    const index = startIndex + match.index;
+    if (!best || index < best.index) {
+      best = { label, index, valueStart: index + match[0].length };
+    }
+  }
+  return best;
+}
+
+function escapeRegExp(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function confirmProjectOnMasterList({ smartsheet, parsed }) {

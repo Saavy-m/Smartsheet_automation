@@ -59,6 +59,13 @@ async function run(initialCtx, options = {}) {
 
     if (await runStateStore.isStepComplete(ctx, stepRef)) {
       log.info('step already complete; skipping');
+      if (markChecklistSteps && automatedChecklistSteps.has(stepRef) && ctx.sheetIds?.gen009Checklist) {
+        try {
+          await markStepDone(ctx, stepRef);
+        } catch (error) {
+          log.warn({ err: error }, 'could not backfill checklist row for skipped step');
+        }
+      }
       addStepResult(ctx, { stepRef, status: 'skipped', message: 'Step was already complete before this run' });
       if (options.stopAfterStep === stepRef) {
         ctx.stoppedAfterStep = stepRef;

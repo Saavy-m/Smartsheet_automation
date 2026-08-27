@@ -5,6 +5,7 @@
 const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 const { retryResourceNotReady } = require('../utils/retryResourceNotReady');
+const { findProjectFolder } = require('./step02c-trimProjectPlan');
 
 const REPORT_DEFINITION_READ_ONLY_FIELDS = new Set(['defaultType', 'forceNullsToBottom', 'id']);
 
@@ -55,12 +56,23 @@ async function run(ctx) {
 }
 
 async function loadProjectRootFolder(smartsheet, ctx) {
-  const projectRootFolderId = ctx.folderIds.projectFolder || ctx.folderIds.projectToolkit;
-  if (!projectRootFolderId) {
-    throw new Error('Step 03 requires the project root folder ID from step02c');
+  if (ctx.folderIds.projectFolder) {
+    return (await smartsheet.get(`/folders/${ctx.folderIds.projectFolder}`)).data;
   }
 
-  return (await smartsheet.get(`/folders/${projectRootFolderId}`)).data;
+  const workspace = (await smartsheet.get(`/workspaces/${config.smartsheet.zActiveWorkspaceId}`)).data;
+  const projectFolder = findProjectFolder(workspace, ctx);
+  if (projectFolder) {
+    ctx.folderIds.projectFolder = projectFolder.id;
+    ctx.folderIds.projectToolkit = projectFolder.id;
+    return (await smartsheet.get(`/folders/${projectFolder.id}`)).data;
+  }
+
+  if (ctx.folderIds.projectToolkit) {
+    return (await smartsheet.get(`/folders/${ctx.folderIds.projectToolkit}`)).data;
+  }
+
+  throw new Error('Step 03 requires the project root folder ID from step02c');
 }
 
 async function findConfiguredReports(smartsheet, projectRootFolder, ctx) {

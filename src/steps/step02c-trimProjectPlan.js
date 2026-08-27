@@ -6,7 +6,7 @@ const config = require('../../config');
 const { childLogger } = require('../utils/logger');
 const { retryResourceNotReady } = require('../utils/retryResourceNotReady');
 const { findColumnByTitle, normalizeLookupKey } = require('../utils/smartsheetSheet');
-const { truncateSmartsheetCopyName } = require('./step01-copyGen009Template');
+const { truncateSmartsheetCopyName, truncateSmartsheetName } = require('./step01-copyGen009Template');
 
 const TASK_NAME_COLUMN = 'Task Name';
 
@@ -99,7 +99,32 @@ function projectFolderNameCandidates(ctx) {
     candidates.push(renderProjectFolderName(name, projectNumber));
   }
 
+  for (const name of [...candidates]) {
+    candidates.push(truncateProjectFolderCopyName(name, projectNumber));
+  }
+
   return [...new Set(candidates.map((candidate) => String(candidate || '').trim()).filter(Boolean))];
+}
+
+function truncateProjectFolderCopyName(name, projectNumber) {
+  return truncateSmartsheetName(name, projectFolderTemplateSuffix(projectNumber));
+}
+
+function projectFolderTemplateSuffix(projectNumber) {
+  const template = String(config.smartsheet.projectFolderNameTemplate || '{projectName}');
+  const projectNameToken = '{projectName}';
+  const projectNameIndex = template.indexOf(projectNameToken);
+  if (projectNameIndex === -1) {
+    return '';
+  }
+
+  return renderProjectFolderFragment(template.slice(projectNameIndex + projectNameToken.length), projectNumber);
+}
+
+function renderProjectFolderFragment(template, projectNumber) {
+  return String(template)
+    .replaceAll('{projectNumber}', projectNumber || '')
+    .trimEnd();
 }
 
 function renderProjectFolderName(projectName, projectNumber) {
@@ -317,4 +342,4 @@ function chunk(items, size) {
   return chunks;
 }
 
-module.exports = { findRowsOutsideProjectType, projectPlanTrimType, projectPlanUrl, run };
+module.exports = { findProjectFolder, findRowsOutsideProjectType, projectFolderNameCandidates, projectPlanTrimType, projectPlanUrl, run };

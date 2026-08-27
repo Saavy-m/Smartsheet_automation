@@ -100,19 +100,29 @@ function renderTemplate(template, ctx) {
     .replaceAll('{projectType}', ctx.projectType);
 }
 
-function truncateSmartsheetCopyName(name) {
+function truncateSmartsheetName(name, suffix = '') {
   const text = String(name || '').trim().replace(/\s+/g, ' ');
   if (text.length <= SMARTSHEET_COPY_NAME_MAX_LENGTH) {
     return text;
   }
 
-  const suffix = text.match(/\s+GEN009$/i)?.[0] || '';
-  if (!suffix) {
+  const normalizedSuffix = String(suffix || '').replace(/\s+/g, ' ');
+  if (!normalizedSuffix || !text.toLowerCase().endsWith(normalizedSuffix.toLowerCase())) {
     return text.slice(0, SMARTSHEET_COPY_NAME_MAX_LENGTH).trim();
   }
 
-  const prefixMaxLength = SMARTSHEET_COPY_NAME_MAX_LENGTH - suffix.length;
-  return `${text.slice(0, prefixMaxLength).trim()}${suffix}`;
+  const prefixMaxLength = SMARTSHEET_COPY_NAME_MAX_LENGTH - normalizedSuffix.length;
+  if (prefixMaxLength <= 0) {
+    return normalizedSuffix.slice(-SMARTSHEET_COPY_NAME_MAX_LENGTH).trim();
+  }
+
+  return `${text.slice(0, prefixMaxLength).trim()}${normalizedSuffix}`;
+}
+
+function truncateSmartsheetCopyName(name) {
+  const text = String(name || '').trim().replace(/\s+/g, ' ');
+  const suffix = text.match(/\s+GEN009$/i)?.[0] || '';
+  return truncateSmartsheetName(text, suffix);
 }
 
 function sheetIdFromCopyResult(data) {
@@ -217,4 +227,4 @@ function sameName(left, right) {
   return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
 }
 
-module.exports = { run, truncateSmartsheetCopyName };
+module.exports = { run, truncateSmartsheetCopyName, truncateSmartsheetName };
