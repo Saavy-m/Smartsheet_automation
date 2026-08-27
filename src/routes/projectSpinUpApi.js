@@ -152,6 +152,7 @@ function normalizeProjectPayload(body = {}) {
   const projectType = body.projectType || body['Project Type'] || body.projectVertical || body['Project Vertical'] || '';
   const patersonProject = body.patersonProject || body['patersonProject'] || body['Is this a Paterson Project'] || body['Is this a Patterson Project'] || '';
   const projectDashboardUrl = body.projectDashboardUrl || body.projectDashboard || body['Project Dashboard'] || '';
+  const projectCreatedAt = body.projectCreatedAt || body.createdAt || body['Project Created'] || body['Created'] || '';
 
   if (!projectName || !projectNumber) {
     const receivedKeys = Object.keys(body).join(', ') || 'none';
@@ -166,6 +167,7 @@ function normalizeProjectPayload(body = {}) {
     projectType: String(projectType).trim(),
     patersonProject: String(patersonProject).trim(),
     projectDashboardUrl: String(projectDashboardUrl).trim(),
+    projectCreatedAt: String(projectCreatedAt).trim(),
     masterProjectListSheetId: body.masterProjectListSheetId,
     masterProjectRowId: body.masterProjectRowId,
     runId: body.runId || `${String(projectNumber).trim()}-${crypto.randomUUID()}`

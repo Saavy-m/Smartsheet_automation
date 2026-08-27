@@ -9,6 +9,7 @@ const { findColumnByTitle, normalizeLookupKey } = require('../utils/smartsheetSh
 const { truncateSmartsheetCopyName, truncateSmartsheetName } = require('./step01-copyGen009Template');
 
 const TASK_NAME_COLUMN = 'Task Name';
+const PROJECT_FOLDER_FALLBACK_MAX_AGE_MS = 20 * 60 * 1000;
 
 async function run(ctx) {
   const log = childLogger(ctx, 'step02c');
@@ -74,9 +75,55 @@ async function resolveProjectPlanSheetId(ctx) {
 function findProjectFolder(container, ctx) {
   const folders = allFolders(container);
   const candidates = projectFolderNameCandidates(ctx).map(normalizeName).filter(Boolean);
+  const projectNumber = typeof ctx === 'string' ? '' : normalizeName(ctx.projectNumber);
+
+  if (projectNumber) {
+    const numberedCandidates = candidates.filter((candidate) => candidate.includes(projectNumber));
+    const numberedMatch = findFolderByCandidates(folders, numberedCandidates);
+    if (numberedMatch) {
+      return numberedMatch;
+    }
+
+    const freshFallback = findFreshFolderByCandidates(folders, candidates.filter((candidate) => !candidate.includes(projectNumber)), ctx);
+    if (freshFallback) {
+      return freshFallback;
+    }
+
+    return null;
+  }
+
+  return findFolderByCandidates(folders, candidates);
+}
+
+function findFolderByCandidates(folders, candidates) {
   return folders.find((folder) => candidates.includes(normalizeName(folder.name)))
     || folders.find((folder) => candidates.some((candidate) => folderNameMatchesCandidate(folder.name, candidate)))
     || null;
+}
+
+function findFreshFolderByCandidates(folders, candidates, ctx) {
+  if (!projectIsWithinFallbackWindow(ctx)) {
+    return null;
+  }
+
+  const matches = folders.filter((folder) => folderIsFresh(folder) && candidates.some((candidate) => folderNameMatchesCandidate(folder.name, candidate)));
+  return matches.find((folder) => candidates.includes(normalizeName(folder.name))) || matches[0] || null;
+}
+
+function projectIsWithinFallbackWindow(ctx) {
+  const createdAt = ctx?.projectCreatedAt || ctx?.createdAt || ctx?.createdDateTime;
+  if (!createdAt) {
+    return true;
+  }
+
+  const createdMs = Date.parse(createdAt);
+  return Number.isFinite(createdMs) && Date.now() - createdMs <= PROJECT_FOLDER_FALLBACK_MAX_AGE_MS;
+}
+
+function folderIsFresh(folder) {
+  const createdAt = folder.createdAt || folder.createdDateTime || folder.modifiedAt;
+  const createdMs = Date.parse(createdAt);
+  return Number.isFinite(createdMs) && Date.now() - createdMs <= PROJECT_FOLDER_FALLBACK_MAX_AGE_MS;
 }
 
 function projectFolderNameCandidates(ctx) {

@@ -1,5 +1,5 @@
 // Step 01 copies the configured GEN009 template sheet into SMARTSHEET_PROJECT_ROOT_FOLDER_PATH and records the new sheet ID.
-// run() resolves the destination folder, creates the rendered {projectName} GEN009 sheet, and records an existing exact-name sheet if found.
+// run() resolves the destination folder and creates the rendered GEN009 sheet with a project-number fallback name when needed.
 // Helper functions render project templates, resolve folder paths, find sheets/folders, and normalize name comparisons.
 
 const config = require('../../config');
@@ -13,19 +13,17 @@ async function run(ctx) {
   validateStep01Config();
   const smartsheet = ctx.clients.smartsheet;
   const requestedSheetName = renderTemplate(config.smartsheet.gen009SheetNameTemplate, ctx);
-  const sheetName = truncateSmartsheetCopyName(requestedSheetName);
 
   const workspace = (await smartsheet.get(`/workspaces/${config.smartsheet.zActiveWorkspaceId}`)).data;
   const folder = getProjectDestinationFolder(workspace);
 
   ctx.folderIds.projectRoot = folder.id;
-  ctx.folderIds.projectToolkit = folder.id;
-  ctx.sheetNames = { ...(ctx.sheetNames || {}), gen009Checklist: sheetName };
   const folderDetails = (await smartsheet.get(`/folders/${folder.id}`)).data;
-  const existing = findSheetByName(folderDetails, sheetName);
+  const { sheetName, requestedName, existing } = resolveGen009SheetName(folderDetails, requestedSheetName, ctx);
+  ctx.sheetNames = { ...(ctx.sheetNames || {}), gen009Checklist: sheetName };
 
-  if (sheetName !== requestedSheetName) {
-    log.warn({ requestedSheetName, sheetName, maxLength: SMARTSHEET_COPY_NAME_MAX_LENGTH }, 'truncated GEN009 sheet name to fit Smartsheet copy name limit');
+  if (sheetName !== requestedName) {
+    log.warn({ requestedSheetName: requestedName, sheetName, maxLength: SMARTSHEET_COPY_NAME_MAX_LENGTH }, 'adjusted GEN009 sheet name to fit Smartsheet copy name limit');
   }
 
   if (existing) {
@@ -98,6 +96,48 @@ function renderTemplate(template, ctx) {
     .replaceAll('{projectName}', ctx.projectName)
     .replaceAll('{projectNumber}', ctx.projectNumber)
     .replaceAll('{projectType}', ctx.projectType);
+}
+
+function resolveGen009SheetName(folderDetails, requestedSheetName, ctx) {
+  const primaryName = truncateSmartsheetCopyName(requestedSheetName);
+  const primaryExisting = findSheetByName(folderDetails, primaryName);
+  if (!primaryExisting) {
+    return { sheetName: primaryName, requestedName: requestedSheetName, existing: null };
+  }
+
+  const fallbackRequestedName = renderNumberedGen009SheetName(ctx);
+  const fallbackName = truncateNumberedGen009SheetName(fallbackRequestedName, ctx.projectNumber);
+  return {
+    sheetName: fallbackName,
+    requestedName: fallbackRequestedName,
+    existing: findSheetByName(folderDetails, fallbackName)
+  };
+}
+
+function renderNumberedGen009SheetName(ctx) {
+  return `${ctx.projectNumber}-${ctx.projectName}-GEN009`;
+}
+
+function truncateNumberedGen009SheetName(name, projectNumber) {
+  const normalizedProjectNumber = String(projectNumber || '').trim();
+  const normalizedName = String(name || '').trim().replace(/\s+/g, ' ');
+  if (normalizedName.length <= SMARTSHEET_COPY_NAME_MAX_LENGTH) {
+    return normalizedName;
+  }
+
+  const prefix = normalizedProjectNumber ? `${normalizedProjectNumber}-` : '';
+  const suffix = '-GEN009';
+  const middleMaxLength = SMARTSHEET_COPY_NAME_MAX_LENGTH - prefix.length - suffix.length;
+  if (middleMaxLength <= 0) {
+    return `${prefix}${suffix.slice(1)}`.slice(0, SMARTSHEET_COPY_NAME_MAX_LENGTH);
+  }
+
+  const projectName = normalizedName
+    .slice(prefix.length, normalizedName.toLowerCase().endsWith(suffix.toLowerCase()) ? -suffix.length : undefined)
+    .trim()
+    .slice(0, middleMaxLength)
+    .trim();
+  return `${prefix}${projectName}${suffix}`;
 }
 
 function truncateSmartsheetName(name, suffix = '') {
@@ -227,4 +267,4 @@ function sameName(left, right) {
   return String(left).trim().toLowerCase() === String(right).trim().toLowerCase();
 }
 
-module.exports = { run, truncateSmartsheetCopyName, truncateSmartsheetName };
+module.exports = { renderNumberedGen009SheetName, run, truncateNumberedGen009SheetName, truncateSmartsheetCopyName, truncateSmartsheetName };

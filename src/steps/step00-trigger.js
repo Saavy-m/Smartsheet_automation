@@ -332,6 +332,7 @@ async function confirmProjectOnMasterList({ smartsheet, parsed }) {
   return {
     projectName,
     projectNumber: String(projectNumber).trim(),
+    projectCreatedAt: row.createdAt || row.createdDateTime,
     projectType: parsed.projectType,
     patersonProject: parsed.patersonProject,
     projectDashboardUrl: parsed.projectDashboardUrl,
