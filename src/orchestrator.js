@@ -81,7 +81,7 @@ async function run(initialCtx, options = {}) {
 
       if (ctx.stepStatus?.[stepRef] === 'needs_manual_review') {
         log.warn('step completed with manual review required; not marking checklist done');
-        addStepResult(ctx, { stepRef, status: 'needs_manual_review', message: 'Manual task required' });
+        addStepResult(ctx, { stepRef, status: 'needs_manual_review', message: buildStepMessage(stepRef, ctx) || 'Manual task required' });
         if (options.stopAfterStep === stepRef) {
           ctx.stoppedAfterStep = stepRef;
           ctx.automationReport = buildAutomationReport(ctx);
@@ -136,6 +136,10 @@ async function run(initialCtx, options = {}) {
 function buildStepMessage(stepRef, ctx) {
   if (stepRef === 'step02e' && ctx.contract?.signedLine) {
     return `Signed contract line: ${ctx.contract.signedLine}`;
+  }
+
+  if (stepRef === 'step02e' && ctx.contract?.reason) {
+    return ctx.contract.reason;
   }
 
   return undefined;

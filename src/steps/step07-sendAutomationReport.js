@@ -337,7 +337,7 @@ function buildContractSignedSummary(report) {
     label = buildInvalidContractFileSummary(contract);
     highlight = true;
   } else if (isMissingContractAttachment(contract)) {
-    label = 'NO - contract verification could not find a Letter of Agreement file. No contract file was attached for review.';
+    label = 'NO - no contract found. No Letter of Agreement attachment was uploaded for this project.';
     highlight = true;
   } else if (contract.needsManualReview) {
     label = 'Needs manual review';
@@ -383,7 +383,7 @@ function articleFor(value) {
 }
 
 function isMissingContractAttachment(contract) {
-  return contract.needsManualReview && /no .*attachment|attachment .*not found|no .*file/i.test(contract.reason || '');
+  return contract.missingContractAttachment || (contract.needsManualReview && /no .*attachment|attachment .*not found|no .*file|no contract found/i.test(contract.reason || ''));
 }
 
 function renderSummaryValue(value) {

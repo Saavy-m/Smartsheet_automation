@@ -8,6 +8,8 @@ const { childLogger } = require('../utils/logger');
 const runStateStore = require('../utils/runStateStore');
 const { buildCell, cellValue, findColumnByTitle, findRowByPrimaryValue } = require('../utils/smartsheetSheet');
 
+const MISSING_CONTRACT_MESSAGE = 'No contract found. No Letter of Agreement attachment was uploaded for this project.';
+
 async function run(ctx) {
   const log = childLogger(ctx, 'step02e');
 
@@ -25,7 +27,7 @@ async function run(ctx) {
 
     const attachment = await findSignedContractAttachment(ctx);
     if (!attachment) {
-      await markNeedsReview(ctx, 'No Letter of Agreement attachment found');
+      await markNeedsReview(ctx, MISSING_CONTRACT_MESSAGE, { missingContractAttachment: true });
       return ctx;
     }
     if (attachment.invalidFileType) {
@@ -71,7 +73,7 @@ async function run(ctx) {
 async function findSignedContractAttachment(ctx) {
   const smartsheet = ctx.clients.smartsheet;
   const { sheetId, rowId } = await resolveProjectRowContext(ctx);
-  const response = await smartsheet.get(`/sheets/${sheetId}/rows/${rowId}/attachments`);
+  const response = await getRowAttachments(smartsheet, sheetId, rowId);
   const attachments = response.data.data || [];
   const likelyContractAttachments = attachments.filter(isLikelyContractAttachment);
   const pdfAttachments = attachments.filter(isPdfAttachment);
@@ -86,6 +88,21 @@ async function findSignedContractAttachment(ctx) {
     };
   }
   return attachment ? { ...attachment, sheetId } : null;
+}
+
+async function getRowAttachments(smartsheet, sheetId, rowId) {
+  try {
+    return await smartsheet.get(`/sheets/${sheetId}/rows/${rowId}/attachments`);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return { data: { data: [] } };
+    }
+    throw error;
+  }
+}
+
+function isNotFoundError(error) {
+  return error?.status === 404 || /^not found$/i.test(String(error?.message || '').trim());
 }
 
 function isLikelyContractAttachment(attachment) {
