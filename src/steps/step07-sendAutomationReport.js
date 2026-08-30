@@ -6,6 +6,7 @@ const { childLogger } = require('../utils/logger');
 
 const MAX_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
 const STEP_LABELS = {
+  step00a: 'Preflight - Find Project Toolkit folder',
   step01: 'Step 1 - Copy GEN009 template',
   step02a: 'Step 2a - Write project info',
   step02b: 'Step 2b - Hide Paterson column',
@@ -51,6 +52,68 @@ async function run(ctx) {
 
   log.info({ to: config.manualCheckpointOwnerEmail, failedStepCount: recapCounts.failed, manualTaskCount: recapCounts.needs_manual_review }, 'automation report email sent');
   return ctx;
+}
+
+async function sendFatalErrorReport(ctx) {
+  const log = childLogger(ctx, 'fatal-report');
+  const mailGraph = ctx.clients.mailGraph || ctx.clients.graph;
+  const message = ctx.fatalError?.message || 'Fatal error - automation stopped before Step 1.';
+  const html = buildFatalErrorEmailHtml(ctx, message);
+
+  await mailGraph.sendMail({
+    fromUserId: config.graph.mailboxUserId,
+    to: config.manualCheckpointOwnerEmail,
+    subject: 'Fatal error - automation did not find the toolkit folder',
+    html,
+    attachments: []
+  });
+
+  ctx.fatalErrorEmail = {
+    from: config.graph.mailboxUserId,
+    to: config.manualCheckpointOwnerEmail,
+    sentAt: new Date().toISOString(),
+    subject: 'Fatal error - automation did not find the toolkit folder'
+  };
+
+  log.info({ to: config.manualCheckpointOwnerEmail }, 'fatal automation report email sent');
+  return ctx;
+}
+
+function buildFatalErrorEmailHtml(ctx, message) {
+  return `
+    <div style="margin:0;padding:0;background:#f8f1ed;color:#2f241f;font-family:Georgia,'Times New Roman',serif;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f8f1ed;">
+        <tr>
+          <td align="center" style="padding:28px 14px;">
+            <table role="presentation" width="720" cellspacing="0" cellpadding="0" style="width:100%;max-width:720px;border-collapse:collapse;background:#ffffff;border:1px solid #e2c9bd;">
+              <tr>
+                <td style="padding:28px 32px 22px 32px;background:#7a2418;color:#ffffff;">
+                  <div style="font-family:Verdana,Geneva,sans-serif;font-size:12px;letter-spacing:0;text-transform:uppercase;color:#ffd9cd;font-weight:700;">Fatal Error</div>
+                  <h1 style="margin:8px 0 0 0;font-size:26px;line-height:1.2;font-weight:700;color:#ffffff;">Automation stopped before Step 1</h1>
+                  <p style="margin:10px 0 0 0;font-family:Verdana,Geneva,sans-serif;font-size:14px;line-height:1.6;color:#ffe8e1;">${escapeHtml(ctx.projectName)} - ${escapeHtml(ctx.projectNumber)}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:28px 32px;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.55;color:#2f241f;">
+                  <p style="margin:0 0 14px 0;font-weight:700;color:#7a2418;">${escapeHtml(message)}</p>
+                  <p style="margin:0 0 14px 0;">The automation searched for the Project Toolkit folder once, then retried 3 more times with delays of 3 minutes, 3 minutes, and 5 minutes. Because the folder was still not found, no remaining automation steps were run.</p>
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e2c9bd;font-size:13px;line-height:1.45;">
+                    <tbody>
+                      <tr><th align="left" style="width:34%;padding:11px 12px;background:#fff7f3;border-bottom:1px solid #efd8cd;color:#703026;font-weight:700;">Project Name</th><td style="padding:11px 12px;border-bottom:1px solid #efd8cd;">${escapeHtml(ctx.projectName)}</td></tr>
+                      <tr><th align="left" style="padding:11px 12px;background:#fff7f3;border-bottom:1px solid #efd8cd;color:#703026;font-weight:700;">Project Number</th><td style="padding:11px 12px;border-bottom:1px solid #efd8cd;">${escapeHtml(ctx.projectNumber)}</td></tr>
+                      <tr><th align="left" style="padding:11px 12px;background:#fff7f3;border-bottom:1px solid #efd8cd;color:#703026;font-weight:700;">Run ID</th><td style="padding:11px 12px;border-bottom:1px solid #efd8cd;">${escapeHtml(ctx.runId)}</td></tr>
+                      <tr><th align="left" style="padding:11px 12px;background:#fff7f3;color:#703026;font-weight:700;">Stopped Step</th><td style="padding:11px 12px;">Project Toolkit folder preflight</td></tr>
+                    </tbody>
+                  </table>
+                  ${buildRecoveryContactFooter()}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
 }
 
 function countRecapStatuses(failureRecap) {
@@ -232,6 +295,7 @@ function stepGuidance(stepRef, ctx) {
   const smartsheetUrls = ctx.resourceUrls?.smartsheet || {};
   const guidance = {
     step01: `Confirm SMARTSHEET_GEN009_TEMPLATE_ID and SMARTSHEET_PROJECT_ROOT_FOLDER_PATH, then verify the destination folder: ${smartsheetUrls.projectToolkitFolder || 'folder URL unavailable'}`,
+    step00a: `Confirm the Project Toolkit folder exists in the configured Smartsheet workspace for project ${ctx.projectNumber}.`,
     step02a: `Open the copied checklist and verify the configured project name/number rows and columns: ${smartsheetUrls.gen009Checklist || 'checklist URL unavailable'}`,
     step02b: `Open the copied checklist and confirm the Patterson column name matches CHECKLIST_PATTERSON_COLUMN: ${smartsheetUrls.gen009Checklist || 'checklist URL unavailable'}`,
     step02c: `Confirm the Project Vertical value maps to an available Project Plan section, then verify the Project Plan sheet: ${smartsheetUrls.projectPlan || 'project plan URL unavailable'}`,
@@ -583,4 +647,4 @@ function escapeAttribute(value) {
   return escapeHtml(value).replace(/`/g, '&#096;');
 }
 
-module.exports = { run };
+module.exports = { run, sendFatalErrorReport };

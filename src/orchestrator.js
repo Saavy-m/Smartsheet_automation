@@ -4,8 +4,10 @@ const { childLogger } = require('./utils/logger');
 const { addStepResult, buildAutomationReport } = require('./utils/automationReport');
 const runStateStore = require('./utils/runStateStore');
 const { markStepDone } = require('./steps/step06-markChecklistDone');
+const automationReportStep = require('./steps/step07-sendAutomationReport');
 
 const steps = [
+  ['step00a', require('./steps/step00a-verifyProjectToolkitFolder')],
   ['step01', require('./steps/step01-copyGen009Template')],
   ['step02a', require('./steps/step02a-writeProjectInfo')],
   ['step02b', require('./steps/step02b-hidePattersonColumn')],
@@ -16,8 +18,10 @@ const steps = [
   ['step04a', require('./steps/step04a-publishOrdersReport')],
   ['step04b', require('./steps/step04b-createOneDriveFolders')],
   ['step05', require('./steps/step05-manualCheckpointHandoff')],
-  ['step07', require('./steps/step07-sendAutomationReport')]
+  ['step07', automationReportStep]
 ];
+
+const alwaysRunSteps = new Set(['step00a']);
 
 const automatedChecklistSteps = new Set([
   'step01',
@@ -44,6 +48,7 @@ async function run(initialCtx, options = {}) {
     stepResults: [],
     ...initialCtx
   };
+  ctx.projectToolkitRetryDelayFn = options.projectToolkitRetryDelayFn || ctx.projectToolkitRetryDelayFn;
 
   ctx.clients = {
     smartsheet: createSmartsheetClient(),
@@ -57,7 +62,7 @@ async function run(initialCtx, options = {}) {
   for (const [stepRef, stepModule] of steps) {
     const log = childLogger(ctx, stepRef);
 
-    if (await runStateStore.isStepComplete(ctx, stepRef)) {
+    if (!alwaysRunSteps.has(stepRef) && await runStateStore.isStepComplete(ctx, stepRef)) {
       log.info('step already complete; skipping');
       if (markChecklistSteps && automatedChecklistSteps.has(stepRef) && ctx.sheetIds?.gen009Checklist) {
         try {
@@ -110,6 +115,27 @@ async function run(initialCtx, options = {}) {
         return ctx;
       }
     } catch (error) {
+      if (error.isFatalAutomationError) {
+        log.error({ err: error }, 'fatal step failed; stopping run');
+        await runStateStore.markStepFailed(ctx, stepRef, error);
+        if (runStateStore.markRunFatal) {
+          await runStateStore.markRunFatal(ctx, error);
+        }
+        ctx.stepStatus[stepRef] = 'fatal_error';
+        ctx.problems = ctx.problems || [];
+        ctx.problems.push({ step: stepRef, message: error.message });
+        ctx.fatalError = {
+          step: stepRef,
+          message: error.message,
+          code: error.code,
+          stoppedAt: new Date().toISOString()
+        };
+        addStepResult(ctx, { stepRef, status: 'failed', outcome: 'fatal_error', message: error.message });
+        ctx.automationReport = buildAutomationReport(ctx);
+        await automationReportStep.sendFatalErrorReport(ctx);
+        return ctx;
+      }
+
       log.error({ err: error }, 'step failed; continuing run');
       await runStateStore.markStepFailed(ctx, stepRef, error);
       ctx.stepStatus[stepRef] = 'failed';

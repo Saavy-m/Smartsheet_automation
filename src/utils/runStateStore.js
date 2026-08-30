@@ -71,11 +71,23 @@ async function markRunComplete(ctx) {
   await writeState(state);
 }
 
+async function markRunFatal(ctx, error) {
+  const state = await readState();
+  const key = projectKey(ctx);
+  state[key] = state[key] || { projectNumber: ctx.projectNumber, steps: {} };
+  state[key].status = 'fatal_error';
+  state[key].fatalAt = new Date().toISOString();
+  state[key].message = error.message;
+  state[key].code = error.code;
+  await writeState(state);
+}
+
 module.exports = {
   getProjectState,
   isStepComplete,
   markStepComplete,
   markStepNeedsManualReview,
   markStepFailed,
+  markRunFatal,
   markRunComplete
 };
