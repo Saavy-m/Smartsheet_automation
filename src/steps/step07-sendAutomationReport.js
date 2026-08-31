@@ -5,6 +5,7 @@ const { buildAutomationReport } = require('../utils/automationReport');
 const { childLogger } = require('../utils/logger');
 
 const MAX_INLINE_ATTACHMENT_BYTES = 3 * 1024 * 1024;
+const CONTRACT_VERIFICATION_EMAILS = ['Contract.Verification@LiviaDesignGroup.com', 'satyamshukla4916@gmail.com'];
 const STEP_LABELS = {
   step00a: 'Preflight - Find Project Toolkit folder',
   step01: 'Step 1 - Copy GEN009 template',
@@ -50,7 +51,24 @@ async function run(ctx) {
     attachmentCount: attachments.length
   };
 
+  const contractVerificationAttachments = await prepareContractVerificationAttachments(ctx, log, attachments);
+  await mailGraph.sendMail({
+    fromUserId: config.graph.mailboxUserId,
+    to: CONTRACT_VERIFICATION_EMAILS,
+    subject: `Contract Status for ${ctx.projectName} - ${ctx.projectNumber}`,
+    html: buildContractVerificationEmailHtml(ctx),
+    attachments: contractVerificationAttachments
+  });
+
+  ctx.contractVerificationEmail = {
+    from: config.graph.mailboxUserId,
+    to: CONTRACT_VERIFICATION_EMAILS,
+    sentAt: new Date().toISOString(),
+    attachmentCount: contractVerificationAttachments.length
+  };
+
   log.info({ to: config.manualCheckpointOwnerEmail, failedStepCount: recapCounts.failed, manualTaskCount: recapCounts.needs_manual_review }, 'automation report email sent');
+  log.info({ to: CONTRACT_VERIFICATION_EMAILS, attachmentCount: contractVerificationAttachments.length }, 'contract verification email sent');
   return ctx;
 }
 
@@ -155,6 +173,35 @@ function prepareEmailAttachments(ctx, log) {
   }
 
   return attachments;
+}
+
+async function prepareContractVerificationAttachments(ctx, log, preparedAttachments) {
+  const contract = ctx.contract || {};
+  if (!contract.attachmentName) {
+    return [];
+  }
+
+  const existingAttachment = preparedAttachments.find((attachment) => attachment.name === contract.attachmentName);
+  if (existingAttachment) {
+    return [existingAttachment];
+  }
+
+  if (!contract.attachmentUrl) {
+    return [];
+  }
+
+  const graph = ctx.clients.graph;
+  const buffer = await graph.download(contract.attachmentUrl);
+  if (buffer.byteLength > MAX_INLINE_ATTACHMENT_BYTES) {
+    log.warn({ attachmentName: contract.attachmentName, byteLength: buffer.byteLength }, 'skipping oversized contract verification email attachment');
+    return [];
+  }
+
+  return [{
+    name: contract.attachmentName,
+    contentType: 'application/pdf',
+    contentBytes: buffer.toString('base64')
+  }];
 }
 
 async function collectResources(ctx, log) {
@@ -357,6 +404,69 @@ function buildEmailHtml({ ctx, report, resources, failureRecap }) {
       </table>
     </div>
   `;
+}
+
+function buildContractVerificationEmailHtml(ctx) {
+  const rows = [
+    ['Contract Status', buildContractStatusValue(ctx)],
+    ['Project Name', ctx.projectName],
+    ['Project Number', ctx.projectNumber],
+    ['Project Dashboard', { label: ctx.projectDashboardUrl ? 'Open project dashboard' : 'Dashboard URL unavailable', url: ctx.projectDashboardUrl, linkLabel: 'Open dashboard' }]
+  ];
+
+  return `
+    <div style="margin:0;padding:0;background:#f4f7f9;color:#23313d;font-family:Georgia,'Times New Roman',serif;">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;background:#f4f7f9;">
+        <tr>
+          <td align="center" style="padding:28px 14px;">
+            <table role="presentation" width="760" cellspacing="0" cellpadding="0" style="width:100%;max-width:760px;border-collapse:collapse;background:#ffffff;border:1px solid #d8e1e7;">
+              <tr>
+                <td style="padding:28px 32px 22px 32px;background:#12323f;color:#ffffff;">
+                  <div style="font-family:Verdana,Geneva,sans-serif;font-size:12px;letter-spacing:0;text-transform:uppercase;color:#a9d7df;font-weight:700;">Contract Verification</div>
+                  <h1 style="margin:8px 0 0 0;font-size:28px;line-height:1.2;font-weight:700;color:#ffffff;">Contract Status</h1>
+                  <p style="margin:10px 0 0 0;font-family:Verdana,Geneva,sans-serif;font-size:14px;line-height:1.6;color:#d7e8ed;">${escapeHtml(ctx.projectName)} - ${escapeHtml(ctx.projectNumber)}</p>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:28px 32px;">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #d8e1e7;font-family:Verdana,Geneva,sans-serif;font-size:13px;line-height:1.45;">
+                    <tbody>
+                      ${rows.map(([label, value]) => `
+                        <tr>
+                          <th align="left" style="width:34%;padding:11px 12px;background:#f7fafb;border-bottom:1px solid #e5edf1;color:#315163;font-weight:700;">${escapeHtml(label)}</th>
+                          <td style="padding:11px 12px;border-bottom:1px solid #e5edf1;color:#23313d;">${renderSummaryValue(value)}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </div>
+  `;
+}
+
+function buildContractStatusValue(ctx) {
+  const contract = ctx.contract || {};
+  if (contract.signed === true) {
+    return { label: contract.attachmentName ? `Signed (${contract.attachmentName})` : 'Signed', highlight: true, highlightTone: 'success' };
+  }
+  if (contract.signed === false) {
+    return { label: contract.attachmentName ? `Not signed (${contract.attachmentName})` : 'Not signed', highlight: true };
+  }
+  if (contract.invalidFileType) {
+    return { label: buildInvalidContractFileSummary(contract), highlight: true };
+  }
+  if (isMissingContractAttachment(contract)) {
+    return { label: 'No contract found. No Letter of Agreement attachment was uploaded for this project.', highlight: true };
+  }
+  if (contract.needsManualReview) {
+    return { label: `Needs manual review${contract.reason ? ` - ${contract.reason}` : ''}`, highlight: true };
+  }
+  return { label: 'Not checked', highlight: true };
 }
 
 function buildProjectSummaryTable(report, ctx) {
