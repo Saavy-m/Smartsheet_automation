@@ -84,7 +84,13 @@ function findProjectFolder(container, ctx) {
       return numberedMatch;
     }
 
-    const freshFallback = findFreshFolderByCandidates(folders, candidates.filter((candidate) => !candidate.includes(projectNumber)), ctx);
+    const unnumberedCandidates = candidates.filter((candidate) => !candidate.includes(projectNumber));
+    const exactUnnumberedMatch = findExactFolderByCandidates(folders, unnumberedCandidates);
+    if (exactUnnumberedMatch) {
+      return exactUnnumberedMatch;
+    }
+
+    const freshFallback = findFreshFolderByCandidates(folders, unnumberedCandidates, ctx);
     if (freshFallback) {
       return freshFallback;
     }
@@ -93,6 +99,10 @@ function findProjectFolder(container, ctx) {
   }
 
   return findFolderByCandidates(folders, candidates);
+}
+
+function findExactFolderByCandidates(folders, candidates) {
+  return folders.find((folder) => candidates.includes(normalizeName(folder.name))) || null;
 }
 
 function findFolderByCandidates(folders, candidates) {
