@@ -55,7 +55,7 @@ async function run(ctx) {
   await mailGraph.sendMail({
     fromUserId: config.graph.mailboxUserId,
     to: CONTRACT_VERIFICATION_EMAILS,
-    subject: `Contract Status for ${ctx.projectName} - ${ctx.projectNumber}`,
+    subject: `Contract Status : [[ ${contractSubjectStatus(ctx)} ]] ${ctx.projectName} - ${ctx.projectNumber}`,
     html: buildContractVerificationEmailHtml(ctx),
     attachments: contractVerificationAttachments
   });
@@ -447,6 +447,10 @@ function buildContractVerificationEmailHtml(ctx) {
       </table>
     </div>
   `;
+}
+
+function contractSubjectStatus(ctx) {
+  return ctx.contract?.signed === true ? 'Pass' : 'Fail';
 }
 
 function buildContractStatusValue(ctx) {
